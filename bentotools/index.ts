@@ -62,17 +62,73 @@ let sender_email = $inbox_name + "@" + $sender_domain
 # Automatically determine receiver (original sender)
 let receiver = $sender
 
-# Business Logic: Call tool function from TOOLS_ROOT_GITHUB/index.ts
-# The tool function name matches the inbox name (e.g., inbox "reverser" calls "reverser" function)
-# For now, we use a script processor to call bun and execute the tool function
-# The tool function will be called with the email data and return transformed text
-let transformed_text = $original_text.split("").reverse().join("")
+# Store email data for script processor
+root._email_data = {
+  "text": $original_text,
+  "html": this.data.html | "",
+  "from": $sender,
+  "to": this.data.to,
+  "subject": $subject
+}
+root._inbox_name = $inbox_name
+root._sender_email = $sender_email
+root._receiver = $receiver
+root._subject = $subject`,
+      },
+      {
+        script: {
+          language: "bun",
+          code: `
+// Parse TOOLS_ROOT_GITHUB to construct raw GitHub URL
+const toolsRoot = "${TOOLS_ROOT_GITHUB}";
+const match = toolsRoot.match(/^https:\\/\\/github\\.com\\/([^\\/]+)\\/([^\\/]+)(?:\\/([^\\/]+))?(?:\\/(.*))?$/);
+if (!match) {
+  throw new Error(\`Invalid TOOLS_ROOT_GITHUB format: \${toolsRoot}\`);
+}
+const [, owner, repo, branch, path] = match;
+const branchName = branch || "main";
+const pathPart = path ? \`\${path}/\`.replace(/\\/+$/, "") : "";
+const rawUrl = \`https://raw.githubusercontent.com/\${owner}/\${repo}/\${branchName}\${pathPart ? \`/\${pathPart}\` : ""}/index.ts\`;
 
-# Construct Resend API Payload with automatically determined emails
-root.from = $inbox_name.capitalize() + " <" + $sender_email + ">"
-root.to = [$receiver]
-root.subject = "Re: " + $subject
-root.html = "<p>Here is your transformed text:</p><blockquote>" + $transformed_text + "</blockquote>"`,
+// Import tools from GitHub
+const tools = await import(rawUrl);
+import type { Email } from "bentotools";
+
+const inboxName = root._inbox_name;
+const emailData = root._email_data;
+
+// Get the tool function that matches the inbox name
+const toolFunction = tools[inboxName];
+
+if (!toolFunction || typeof toolFunction !== "function") {
+  throw new Error(\`Tool function "\${inboxName}" not found in index.ts\`);
+}
+
+// Construct Email object
+const email: Email = {
+  text: emailData.text || null,
+  html: emailData.html || null,
+  from: emailData.from,
+  to: emailData.to,
+  subject: emailData.subject,
+};
+
+// Call the tool function
+const transformed_text = toolFunction(email);
+
+// Set the transformed text
+root._transformed_text = transformed_text;
+`,
+        },
+      },
+      {
+        bloblang: `# Construct Resend API Payload with automatically determined emails
+root.from = root._inbox_name.capitalize() + " <" + root._sender_email + ">"
+root.to = [root._receiver]
+root.subject = "Re: " + root._subject
+root.html = "<p>Here is your transformed text:</p><blockquote>" + root._transformed_text + "</blockquote>"
+# Clean up temporary fields
+root = root.delete("_email_data").delete("_inbox_name").delete("_sender_email").delete("_receiver").delete("_subject").delete("_transformed_text")`,
       },
     ],
   },

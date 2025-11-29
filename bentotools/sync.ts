@@ -279,12 +279,16 @@ async function main() {
     );
   }
 
+  // Get TOOLS_ROOT_GITHUB for substitution
+  const TOOLS_ROOT_GITHUB = process.env.TOOLS_ROOT_GITHUB || "";
+
   // Substitute variables in all stream configs
   const vars = {
     S2_BASIN,
     BASE_DOMAIN,
     S2_ACCESS_TOKEN,
     RESEND_API_KEY,
+    TOOLS_ROOT_GITHUB,
   };
 
   const substitutedStreams: Record<string, BentoStreamConfig> = {};
