@@ -812,25 +812,28 @@ test_tool() {
     local TEST_RECEIVER="${TOOL_NAME}@${BASE_DOMAIN}"
     local TEST_SUBJECT="Test: ${TOOL_NAME} - ${INPUT_TEXT}"
     
-    echo -e "${BLUE}Testing tool '${TOOL_NAME}': adding test email to S2 inbox stream, expecting '${EXPECTED_OUTPUT}'...${NC}"
+    echo -e "${BLUE}Testing tool '${TOOL_NAME}': adding test email to S2 outbox stream, expecting '${EXPECTED_OUTPUT}'...${NC}"
     
-    # Construct Resend API payload (initial email format - what would come from Resend webhook)
-    # This simulates an email FROM the test sender TO the tool inbox
+    # Extract sender name from email address (e.g., "agent1@notifications.divizend.com" -> "Agent1")
+    local SENDER_NAME
+    SENDER_NAME=$(echo "${TEST_SENDER}" | cut -d'@' -f1 | sed 's/^./\U&/')
+    
+    # Construct Resend API payload (initial email - what we're sending TO the tool)
+    # This email will be added to outbox, then Bento's send_email stream will send it via Resend API
     local RESEND_PAYLOAD
     RESEND_PAYLOAD=$(jq -n \
-        --arg from "${TEST_SENDER}" \
+        --arg from "${SENDER_NAME} <${TEST_SENDER}>" \
         --arg to "${TEST_RECEIVER}" \
         --arg subject "${TEST_SUBJECT}" \
-        --arg text "${INPUT_TEXT}" \
         --arg html "${INPUT_TEXT}" \
-        '{from: $from, to: [$to], subject: $subject, text: $text, html: $html}')
+        '{from: $from, to: [$to], subject: $subject, html: $html}')
     
     # Show what's being added to S2
-    echo -e "${BLUE}Adding to S2 inbox stream (${TOOL_NAME}):${NC}"
+    echo -e "${BLUE}Adding to S2 outbox stream:${NC}"
     echo "$RESEND_PAYLOAD" | jq . | sed 's/^/  /'
     
-    # Add payload to S2 inbox stream using S2 CLI
-    # The inbox stream name is based on the tool name (e.g., inbox/reverser)
+    # Add payload to S2 outbox stream using S2 CLI
+    # Bento's send_email stream will pick it up and send it via Resend API
     # Find s2 command (may be in ~/.s2/bin or system PATH)
     export PATH="$HOME/.s2/bin:$HOME/.cargo/bin:$PATH"
     S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
@@ -838,10 +841,9 @@ test_tool() {
     # Ensure access token is configured
     "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1
     
-    # Ensure the inbox stream exists (create it if it doesn't)
-    local INBOX_STREAM="inbox/${TOOL_NAME}"
+    # Ensure the outbox stream exists (create it if it doesn't)
     set +e
-    "$S2_CMD" create-stream "s2://${S2_BASIN}/${INBOX_STREAM}" >/dev/null 2>&1
+    "$S2_CMD" create-stream "s2://${S2_BASIN}/outbox" >/dev/null 2>&1
     set -e
     
     # S2 CLI syntax: echo <data> | s2 append s2://<basin>/<stream>
@@ -849,30 +851,30 @@ test_tool() {
     # S2_BASIN is already defined earlier in the script (converted from BASE_DOMAIN)
     # Temporarily disable exit on error for test
     set +e
-    APPEND_OUTPUT=$(echo "$RESEND_PAYLOAD" | "$S2_CMD" append "s2://${S2_BASIN}/${INBOX_STREAM}" 2>&1)
+    APPEND_OUTPUT=$(echo "$RESEND_PAYLOAD" | "$S2_CMD" append "s2://${S2_BASIN}/outbox" 2>&1)
     APPEND_EXIT=$?
     set -e
     
     if [ $APPEND_EXIT -ne 0 ]; then
-        echo -e "${RED}✗ Failed to add test email to S2 inbox stream${NC}"
+        echo -e "${RED}✗ Failed to add test email to S2 outbox stream${NC}"
         echo -e "${YELLOW}Error output:${NC}"
         echo "$APPEND_OUTPUT" | sed 's/^/  /'
         
         # Check if it's a basin/stream not found error or permission error
         if echo "$APPEND_OUTPUT" | grep -qiE "stream.*not found|Stream not found"; then
-            echo -e "${YELLOW}  Stream '${INBOX_STREAM}' doesn't exist in basin '${S2_BASIN}'.${NC}"
+            echo -e "${YELLOW}  Stream 'outbox' doesn't exist in basin '${S2_BASIN}'.${NC}"
             echo -e "${YELLOW}  Attempting to create stream...${NC}"
             set +e
-            if "$S2_CMD" create-stream "s2://${S2_BASIN}/${INBOX_STREAM}" >/dev/null 2>&1; then
+            if "$S2_CMD" create-stream "s2://${S2_BASIN}/outbox" >/dev/null 2>&1; then
                 echo -e "${GREEN}  Stream created, retrying append...${NC}"
-                if echo "$RESEND_PAYLOAD" | "$S2_CMD" append "s2://${S2_BASIN}/${INBOX_STREAM}" >/dev/null 2>&1; then
-                    echo -e "${GREEN}✓ Test email added to S2 inbox stream${NC}"
+                if echo "$RESEND_PAYLOAD" | "$S2_CMD" append "s2://${S2_BASIN}/outbox" >/dev/null 2>&1; then
+                    echo -e "${GREEN}✓ Test email added to S2 outbox stream${NC}"
                     APPEND_EXIT=0
                 fi
             fi
             set -e
             if [ $APPEND_EXIT -ne 0 ]; then
-                echo -e "${YELLOW}  Please create the stream manually: s2 create-stream s2://${S2_BASIN}/${INBOX_STREAM}${NC}"
+                echo -e "${YELLOW}  Please create the stream manually: s2 create-stream s2://${S2_BASIN}/outbox${NC}"
             fi
         elif echo "$APPEND_OUTPUT" | grep -qiE "basin.*not found|not authorized|permission|Basin not authorized"; then
             echo -e "${YELLOW}  This may be because the basin '${S2_BASIN}' doesn't exist yet.${NC}"
@@ -883,7 +885,8 @@ test_tool() {
         fi
         return 1
     fi
-    echo -e "${GREEN}✓ Test email added to S2 inbox stream${NC}"
+    echo -e "${GREEN}✓ Test email added to S2 outbox stream${NC}"
+    echo -e "${BLUE}  Bento's send_email stream should pick this up and send it via Resend API${NC}"
     echo -e "${BLUE}Waiting for reply email with expected output '${EXPECTED_OUTPUT}'...${NC}"
     
     # Wait for email delivery and processing (5 seconds is enough for Resend within their systems)
