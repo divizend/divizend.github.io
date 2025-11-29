@@ -205,8 +205,15 @@ async function syncStream(
       body: JSON.stringify(config),
     });
 
-    // If POST fails with 409 (conflict) or 404, try PUT (update)
-    if (response.status === 409 || response.status === 404) {
+    // If POST fails with 400 (bad request - stream exists), 409 (conflict), or 404, try PUT (update)
+    if (response.status === 400 || response.status === 409 || response.status === 404) {
+      const bodyText = await response.text();
+      // Only use PUT if the error indicates the stream already exists
+      if (response.status === 400 && !bodyText.includes("already exists") && !bodyText.includes("Stream already exists")) {
+        // This is a real validation error, not "stream exists"
+        console.error(`    ✗ Stream '${name}' validation error: ${bodyText}`);
+        return false;
+      }
       response = await fetch(`${apiUrl}/streams/${name}`, {
         method: "PUT",
         headers: {

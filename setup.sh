@@ -477,15 +477,17 @@ if [ "$BASIN_EXISTS" = false ]; then
         fi
     done
     
-    # Final check - if basin still doesn't exist, warn but continue (permission issues are bugs)
+    # Final check - if basin still doesn't exist, fail
     if [ "$CREATE_SUCCESS" = false ]; then
         # One final check
         sleep 2
         if "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
             echo -e "${GREEN}S2 basin '${S2_BASIN}' is now available.${NC}"
         else
-            echo -e "${YELLOW}Warning: S2 basin '${S2_BASIN}' could not be created due to permission issues.${NC}"
-            echo -e "${YELLOW}This is a bug - continuing setup anyway. Basin may need to be created manually.${NC}"
+            echo -e "${RED}Error: S2 basin '${S2_BASIN}' could not be created.${NC}" >&2
+            echo -e "${RED}This indicates an authentication or permission issue with the S2 access token.${NC}" >&2
+            echo -e "${RED}Please verify your S2_ACCESS_TOKEN has permission to create basins.${NC}" >&2
+            exit 1
         fi
     fi
     # Re-enable exit on error
