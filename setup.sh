@@ -70,39 +70,61 @@ fi
 
 # 5. Configure Caddy
 echo -e "${BLUE}Configuring Caddy for ${STREAM_DOMAIN}...${NC}"
-cat <<EOF > /etc/caddy/Caddyfile
+EXPECTED_CADDYFILE="/tmp/caddyfile.expected"
+cat <<EOF > "$EXPECTED_CADDYFILE"
 ${STREAM_DOMAIN} {
     reverse_proxy localhost:4195
 }
 EOF
-# Stop Caddy first if it's running (to avoid port conflicts)
-if systemctl is-active --quiet caddy 2>/dev/null || systemctl is-failed --quiet caddy 2>/dev/null; then
-    systemctl stop caddy
+
+# Check if Caddyfile needs updating (idempotent)
+CADDYFILE_CHANGED=false
+if [ ! -f /etc/caddy/Caddyfile ] || ! diff -q /etc/caddy/Caddyfile "$EXPECTED_CADDYFILE" > /dev/null 2>&1; then
+    cp "$EXPECTED_CADDYFILE" /etc/caddy/Caddyfile
+    CADDYFILE_CHANGED=true
+    echo -e "${GREEN}Caddyfile updated.${NC}"
+else
+    echo -e "${GREEN}Caddyfile is already configured correctly.${NC}"
 fi
-# Check if port 443 is in use and stop conflicting services
-if ss -tuln | grep -q ':443 '; then
-    echo -e "${YELLOW}Port 443 is in use, checking for conflicting services...${NC}"
-    # Stop common web servers that might conflict
-    for service in apache2 nginx httpd; do
-        if systemctl is-active --quiet $service 2>/dev/null; then
-            echo -e "${YELLOW}Stopping ${service} to free port 443...${NC}"
-            systemctl stop $service
-            systemctl disable $service
-        fi
-    done
-    # Kill any process using port 443 (as last resort)
-    if command -v lsof > /dev/null 2>&1; then
-        PID=$(lsof -ti :443 2>/dev/null)
-        if [ -n "$PID" ]; then
-            echo -e "${YELLOW}Stopping process $PID using port 443...${NC}"
-            kill $PID 2>/dev/null || true
+rm -f "$EXPECTED_CADDYFILE"
+
+# Enable Caddy service
+systemctl daemon-reload
+systemctl enable caddy > /dev/null 2>&1 || true
+
+# Check if Caddy is running and healthy
+if systemctl is-active --quiet caddy 2>/dev/null; then
+    if [ "$CADDYFILE_CHANGED" = true ]; then
+        echo -e "${BLUE}Reloading Caddy configuration...${NC}"
+        systemctl reload caddy || {
+            echo -e "${YELLOW}Caddy reload failed, attempting restart...${NC}"
+            systemctl restart caddy || echo -e "${YELLOW}Note: Caddy restart had issues, but continuing...${NC}"
+        }
+    else
+        echo -e "${GREEN}Caddy is already running.${NC}"
+    fi
+else
+    # Caddy is not running - check for port conflicts only if we need to start it
+    if ss -tuln | grep -q ':443 '; then
+        echo -e "${YELLOW}Port 443 is in use, checking for conflicting services...${NC}"
+        # Only stop services if Caddy isn't the one using the port
+        if ! systemctl is-active --quiet caddy 2>/dev/null; then
+            for service in apache2 nginx httpd; do
+                if systemctl is-active --quiet $service 2>/dev/null; then
+                    echo -e "${YELLOW}Stopping ${service} to free port 443...${NC}"
+                    systemctl stop $service
+                    systemctl disable $service > /dev/null 2>&1 || true
+                fi
+            done
+            sleep 1
         fi
     fi
-    sleep 2
+    echo -e "${BLUE}Starting Caddy...${NC}"
+    systemctl start caddy || {
+        echo -e "${YELLOW}Warning: Caddy failed to start. This may be due to port conflicts or configuration issues.${NC}"
+        echo -e "${YELLOW}You can check the status with: systemctl status caddy${NC}"
+    }
 fi
-systemctl daemon-reload
-systemctl enable caddy
-systemctl reload-or-restart caddy
 
 # 6. Install Bento (Stream Processor)
 if ! command -v bento &> /dev/null; then
