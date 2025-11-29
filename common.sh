@@ -201,19 +201,30 @@ create_secrets_file_if_needed() {
     }
     
     # Create empty YAML file first, then encrypt it using SOPS
-    # SOPS needs the file path to determine encryption rules from .sops.yaml
-    echo "{}" > "$secrets_file.tmp"
+    # SOPS needs the file path to match against path_regex in .sops.yaml
+    # Create temp file with the correct name so SOPS can match the creation rule
+    local temp_file="${secrets_file}.tmp"
+    echo "{}" > "$temp_file"
     
-    # Use sops_cmd to encrypt the file (SOPS will read .sops.yaml based on the file path)
-    if sops_cmd -e -i "$secrets_file.tmp" 2>&1; then
-        mv "$secrets_file.tmp" "$secrets_file"
+    # Use sops_cmd to encrypt the file in place
+    # SOPS will use the file path to match against path_regex in .sops.yaml
+    if sops_cmd -e -i "$temp_file" 2>&1; then
+        mv "$temp_file" "$secrets_file"
         echo -e "${GREEN}✓ Created secrets.encrypted.yaml${NC}"
         return 0
     else
-        rm -f "$secrets_file.tmp"
-        echo -e "${RED}Error: Failed to create secrets.encrypted.yaml${NC}" >&2
-        echo -e "${YELLOW}Debug: Check that .sops.yaml is properly configured and age key is available${NC}" >&2
-        return 1
+        rm -f "$temp_file"
+        # Try alternative: create file with correct name in same directory
+        echo "{}" > "$secrets_file"
+        if sops_cmd -e -i "$secrets_file" 2>&1; then
+            echo -e "${GREEN}✓ Created secrets.encrypted.yaml${NC}"
+            return 0
+        else
+            rm -f "$secrets_file"
+            echo -e "${RED}Error: Failed to create secrets.encrypted.yaml${NC}" >&2
+            echo -e "${YELLOW}Debug: Check that .sops.yaml is properly configured and age key is available${NC}" >&2
+            return 1
+        fi
     fi
 }
 
