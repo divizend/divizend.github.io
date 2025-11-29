@@ -307,7 +307,7 @@ cat <<EOF > /etc/bento/streams/ingest_email.yaml
     path: /webhooks/resend
         allowed_verbs: [POST]
         timeout: 5s
-    
+
 pipeline:
   processors:
     # In a strict production environment, you would verify the svix-signature here.
@@ -322,10 +322,10 @@ EOF
 cat <<EOF > /etc/bento/streams/process_reverser.yaml
 input:
   resource: s2_inbox_reader
-    
+
 pipeline:
   processors:
-        - bloblang: |
+    - bloblang: |
         # Extract relevant fields from Resend Payload
         let original_text = this.data.text | ""
         let sender = this.data.from
