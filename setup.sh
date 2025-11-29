@@ -288,6 +288,8 @@ S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
 if ! "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
     echo -e "${BLUE}Creating S2 basin '${S2_BASIN}'...${NC}"
     # Try creating the basin - retry a few times in case of transient issues
+    # Temporarily disable exit on error for basin creation (permission issues are bugs)
+    set +e
     CREATE_SUCCESS=false
     for attempt in 1 2 3; do
         CREATE_OUTPUT=$("$S2_CMD" create-basin "${S2_BASIN}" 2>&1)
@@ -363,6 +365,8 @@ if ! "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
             echo -e "${YELLOW}This is a bug - continuing setup anyway. Basin may need to be created manually.${NC}"
         fi
     fi
+    # Re-enable exit on error
+    set -e
 else
     echo -e "${GREEN}S2 basin '${S2_BASIN}' already exists.${NC}"
 fi
