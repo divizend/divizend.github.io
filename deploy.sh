@@ -45,7 +45,23 @@ if [[ -f "${SCRIPT_DIR}/.sops.yaml" ]]; then
     # Check if local public key is already in .sops.yaml
     if ! grep -q "$LOCAL_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
         echo -e "${BLUE}📝 Updating .sops.yaml with local public key...${NC}"
-        "${SCRIPT_DIR}/scripts/update-sops-recipients.sh" "${SCRIPT_DIR}" "$LOCAL_PUBLIC_KEY"
+        if command -v bun &> /dev/null; then
+            bun "${SCRIPT_DIR}/scripts/secrets.ts" add-recipient "$LOCAL_PUBLIC_KEY" || {
+                # Fallback: simple sed approach
+                if [[ "$OSTYPE" == "darwin"* ]]; then
+                    sed -i '' "s|age: >-|age: >-\\n      ${LOCAL_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"
+                else
+                    sed -i "s|age: >-|age: >-\\n      ${LOCAL_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"
+                fi
+            }
+        else
+            # Fallback: simple sed approach
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                sed -i '' "s|age: >-|age: >-\\n      ${LOCAL_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"
+            else
+                sed -i "s|age: >-|age: >-\\n      ${LOCAL_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"
+            fi
+        fi
     fi
 else
     echo -e "${YELLOW}⚠ .sops.yaml not found, creating it...${NC}"
@@ -87,7 +103,7 @@ scp setup.sh root@${SERVER_IP}:/tmp/setup.sh.local > /dev/null
 scp common.sh root@${SERVER_IP}:/tmp/common.sh > /dev/null
 # Copy templates directory
 scp -r templates root@${SERVER_IP}:/tmp/ > /dev/null
-# Copy scripts directory (for update-sops-recipients.sh)
+# Copy scripts directory (for secrets.ts)
 scp -r scripts root@${SERVER_IP}:/tmp/ > /dev/null
 # Copy encrypted secrets and SOPS config to server
 scp secrets.encrypted.yaml root@${SERVER_IP}:/tmp/secrets.encrypted.yaml > /dev/null

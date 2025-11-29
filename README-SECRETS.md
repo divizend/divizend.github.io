@@ -41,27 +41,22 @@ The `setup.sh` script automatically:
    age-keygen -o .age-key-github
    ```
 
-2. **Add the GitHub Actions public key to `.sops.yaml`:**
+2. **Extract the public key:**
    ```bash
-   # Extract public key
-   PUBLIC_KEY=$(grep "^public key:" .age-key-github | cut -d' ' -f4)
-   
-   # Add to .sops.yaml (or use the helper script)
-   ./scripts/update-sops-recipients.sh . "$PUBLIC_KEY"
+   grep "^# public key:" .age-key-github | cut -d' ' -f4
    ```
 
-3. **Re-encrypt secrets with the new recipient:**
+3. **Add the GitHub Actions public key to `.sops.yaml`:**
    ```bash
-   # Decrypt with local key
-   export SOPS_AGE_KEY=$(cat .age-key-local)
-   sops -d secrets.encrypted.yaml > secrets.yaml
-   
-   # Re-encrypt (now includes GitHub Actions key)
-   sops -e secrets.yaml > secrets.encrypted.yaml
-   rm secrets.yaml
+   npm run secrets:add-recipient <public-key>
    ```
 
-4. **Add GitHub Secret:**
+4. **Re-encrypt secrets with the new recipient:**
+   ```bash
+   npm run secrets:edit  # This will re-encrypt with all recipients
+   ```
+
+5. **Add GitHub Secret:**
    - Go to your GitHub repository
    - Navigate to Settings → Secrets and variables → Actions
    - Click "New repository secret"
@@ -69,7 +64,7 @@ The `setup.sh` script automatically:
    - Value: The entire contents of `.age-key-github` (the private key)
    - Click "Add secret"
 
-5. **Commit changes:**
+6. **Commit changes:**
    ```bash
    git add secrets.encrypted.yaml .sops.yaml
    git commit -m "Add GitHub Actions recipient for secrets"
@@ -78,7 +73,27 @@ The `setup.sh` script automatically:
 
 ## Managing Secrets
 
-### Edit Secrets
+### Get a Secret
+
+```bash
+npm run secrets:get <key>
+# Example: npm run secrets:get BASE_DOMAIN
+```
+
+### Set a Secret
+
+```bash
+npm run secrets:set <key> <value>
+# Example: npm run secrets:set BASE_DOMAIN "example.com"
+```
+
+### List All Secrets
+
+```bash
+npm run secrets:list
+```
+
+### Edit All Secrets
 
 Edit secrets as if they were a `.env` file:
 
@@ -92,7 +107,7 @@ This will:
 3. Open in your default editor (`$EDITOR` or `nano`)
 4. Convert back to YAML and re-encrypt
 
-### View Secrets
+### View All Secrets
 
 Dump all decrypted secrets to stdout:
 
@@ -100,22 +115,17 @@ Dump all decrypted secrets to stdout:
 npm run secrets:dump
 ```
 
-### Manual Editing
+### Add a Recipient
 
-You can also use SOPS directly:
+Add a new recipient (public key) to `.sops.yaml`:
 
 ```bash
-# Set your local key
-export SOPS_AGE_KEY=$(cat .age-key-local)
+npm run secrets:add-recipient <public-key>
+```
 
-# Edit with SOPS (opens in your editor)
-sops secrets.encrypted.yaml
-
-# Or decrypt, edit, and re-encrypt manually
-sops -d secrets.encrypted.yaml > secrets.yaml
-nano secrets.yaml  # Edit as needed
-sops -e secrets.yaml > secrets.encrypted.yaml
-rm secrets.yaml
+**Note:** After adding a recipient, you must re-encrypt secrets:
+```bash
+npm run secrets:edit
 ```
 
 ## How It Works
@@ -143,7 +153,7 @@ When you enter a new value during setup (via `get_config_value`), it's automatic
 ## Security Notes
 
 - ✅ **DO commit:** `secrets.encrypted.yaml` and `.sops.yaml`
-- ❌ **NEVER commit:** `.age-key-*` files, `secrets.yaml` (unencrypted), or `.env`
+- ❌ **NEVER commit:** `.age-key-*` files or unencrypted secrets
 - 🔒 Keep your `.age-key-*` files secure and backed up safely
 - 🔄 Rotate keys periodically by generating new keypairs and re-encrypting
 

@@ -90,9 +90,13 @@ if [[ -f "/tmp/.sops.yaml" ]]; then
     # Add server public key to .sops.yaml if not present
     if ! grep -q "$SERVER_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
         echo -e "${BLUE}📝 Adding server public key to .sops.yaml...${NC}"
-        # Use helper script to add key
-        if [[ -f "/tmp/scripts/update-sops-recipients.sh" ]]; then
-            bash /tmp/scripts/update-sops-recipients.sh "${SCRIPT_DIR}" "$SERVER_PUBLIC_KEY"
+        # Use TypeScript script to add key if bun is available
+        if command -v bun &> /dev/null && [[ -f "/tmp/scripts/secrets.ts" ]]; then
+            export SOPS_AGE_KEY=$(cat "$SERVER_AGE_KEY_FILE")
+            bun /tmp/scripts/secrets.ts add-recipient "$SERVER_PUBLIC_KEY" || {
+                # Fallback: simple sed approach
+                sed -i "s|age: >-|age: >-\\n      ${SERVER_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"
+            }
         else
             # Fallback: simple sed approach
             sed -i "s|age: >-|age: >-\\n      ${SERVER_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"
@@ -148,7 +152,7 @@ echo -e "3. Add GitHub secret ${BLUE}SOPS_AGE_KEY${NC} with the contents of ${BL
 echo -e "4. Commit ${BLUE}secrets.encrypted.yaml${NC} and ${BLUE}.sops.yaml${NC} to the repo"
 echo -e "5. ${RED}Never commit .age-key-* files (they contain private keys)${NC}"
 echo -e "\n${BLUE}Note: All secrets are stored in ${GREEN}secrets.encrypted.yaml${NC} (no .env file needed).${NC}"
-echo -e "${BLUE}Use ${GREEN}npm run secrets:edit${NC} to edit secrets or ${GREEN}npm run secrets:dump${NC} to view them.${NC}"
+echo -e "${BLUE}Use ${GREEN}npm run secrets:edit${NC} to edit secrets, ${GREEN}npm run secrets:dump${NC} to view them, or ${GREEN}npm run secrets:set <key> <value>${NC} to set individual secrets.${NC}"
 echo -e "${YELLOW}Press Enter to continue...${NC}"
 read -r < /dev/tty || true
 
