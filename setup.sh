@@ -287,50 +287,59 @@ S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
 
 if ! "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
     echo -e "${BLUE}Creating S2 basin '${S2_BASIN}'...${NC}"
-    CREATE_OUTPUT=$("$S2_CMD" create-basin "${S2_BASIN}" 2>&1)
-    CREATE_EXIT=$?
-    if [ $CREATE_EXIT -eq 0 ]; then
-        echo -e "${GREEN}S2 basin '${S2_BASIN}' created successfully.${NC}"
-    else
-        # Debug: show the actual error
-        echo -e "${YELLOW}Debug: Basin creation output:${NC}"
-        echo "$CREATE_OUTPUT" | sed 's/^/  /'
+    # Try creating the basin - retry a few times in case of transient issues
+    CREATE_SUCCESS=false
+    for attempt in 1 2 3; do
+        CREATE_OUTPUT=$("$S2_CMD" create-basin "${S2_BASIN}" 2>&1)
+        CREATE_EXIT=$?
+        if [ $CREATE_EXIT -eq 0 ]; then
+            echo -e "${GREEN}S2 basin '${S2_BASIN}' created successfully.${NC}"
+            CREATE_SUCCESS=true
+            break
+        fi
         
-        # Check if it's a permission issue or something else
+        # If it's a permission error, the token might need to be refreshed or there's a config issue
         if echo "$CREATE_OUTPUT" | grep -qi "not authorized\|permission\|unauthorized"; then
-            echo -e "${YELLOW}Checking S2 configuration...${NC}"
-            # Verify token is set
-            if [ -f "$HOME/.config/s2/config.toml" ]; then
-                echo -e "${GREEN}✓ S2 config file exists${NC}"
+            if [ $attempt -lt 3 ]; then
+                echo -e "${YELLOW}Retrying basin creation (attempt $attempt/3)...${NC}"
+                # Re-set the token and try again
+                "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1
+                sleep 1
             else
-                echo -e "${RED}✗ S2 config file not found${NC}"
-            fi
-            
-            # Try to verify token is working by listing basins
-            if "$S2_CMD" list-basins >/dev/null 2>&1; then
-                echo -e "${GREEN}✓ S2 access token is valid (can list basins)${NC}"
-                echo -e "${YELLOW}But token may not have basin creation permissions.${NC}"
-                echo -e "${YELLOW}Please check your S2 access token permissions in the dashboard.${NC}"
-            else
-                echo -e "${RED}✗ S2 access token appears invalid${NC}"
-                echo -e "${RED}Please verify your S2_ACCESS_TOKEN is correct.${NC}"
-            fi
-            
-            # Verify basin exists now (might have been created by another process)
-            sleep 1
-            if "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
-                echo -e "${GREEN}S2 basin '${S2_BASIN}' is now available.${NC}"
-            else
-                echo -e "${RED}Error: S2 basin '${S2_BASIN}' does not exist and could not be created.${NC}"
-                echo -e "${RED}Setup cannot continue without the basin.${NC}"
-                exit 1
+                # Final attempt failed - this is a bug as the user stated
+                echo -e "${RED}Error: Failed to create S2 basin '${S2_BASIN}' after 3 attempts${NC}"
+                echo -e "${RED}This is a bug - the access token should have permission to create basins.${NC}"
+                echo -e "${YELLOW}Debug info:${NC}"
+                echo "$CREATE_OUTPUT" | sed 's/^/  /'
+                
+                # Check if we can at least list basins (token works)
+                if "$S2_CMD" list-basins >/dev/null 2>&1; then
+                    echo -e "${YELLOW}Token is valid but lacks basin creation permissions.${NC}"
+                    echo -e "${YELLOW}This should not happen - please report this as a bug.${NC}"
+                fi
+                
+                # Verify basin exists now (might have been created by another process)
+                sleep 2
+                if "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
+                    echo -e "${GREEN}S2 basin '${S2_BASIN}' is now available (created by another process).${NC}"
+                    CREATE_SUCCESS=true
+                    break
+                else
+                    echo -e "${RED}Setup cannot continue without the basin.${NC}"
+                    exit 1
+                fi
             fi
         else
-            # Some other error
-            echo -e "${RED}Error: Failed to create S2 basin '${S2_BASIN}'${NC}"
-            echo -e "${RED}Setup cannot continue without the basin.${NC}"
+            # Some other error - show it and exit
+            echo -e "${RED}Error: Failed to create S2 basin '${S2_BASIN}':${NC}"
+            echo "$CREATE_OUTPUT" | sed 's/^/  /'
             exit 1
         fi
+    done
+    
+    if [ "$CREATE_SUCCESS" = false ]; then
+        echo -e "${RED}Error: Could not create S2 basin '${S2_BASIN}'${NC}"
+        exit 1
     fi
 else
     echo -e "${GREEN}S2 basin '${S2_BASIN}' already exists.${NC}"
