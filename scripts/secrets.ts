@@ -193,97 +193,109 @@ async function editSecrets(): Promise<void> {
     const tempFile = join(tmpdir(), `secrets-edit-${Date.now()}.txt`);
     writeFileSync(tempFile, envFormat, "utf-8");
 
-     // Open in editor
-     // Use EDITOR or VISUAL environment variables, or default to nano
-     console.log(`${BLUE}Environment check:${NC}`);
-     console.log(`  EDITOR: ${process.env.EDITOR || "(not set)"}`);
-     console.log(`  VISUAL: ${process.env.VISUAL || "(not set)"}`);
-     
-     let editor = process.env.EDITOR || process.env.VISUAL;
-     
-     // If no editor is set, use nano explicitly
-     if (!editor) {
-       // Try to find nano in common locations
-       const nanoPaths = [
-         "/usr/bin/nano",
-         "/bin/nano",
-         "/opt/homebrew/bin/nano",
-       ];
-       for (const path of nanoPaths) {
-         if (existsSync(path)) {
-           editor = path;
-           console.log(`${BLUE}  Using default editor: ${editor}${NC}`);
-           break;
-         }
-       }
-       
-       if (!editor) {
-         throw new Error(
-           "No editor found. Please install nano or set $EDITOR environment variable."
-         );
-       }
-     } else {
-       console.log(`${BLUE}  Using editor from environment: ${editor}${NC}`);
-     }
+    // Open in editor
+    // Use EDITOR or VISUAL environment variables, or default to nano
+    console.log(`${BLUE}Environment check:${NC}`);
+    console.log(`  EDITOR: ${process.env.EDITOR || "(not set)"}`);
+    console.log(`  VISUAL: ${process.env.VISUAL || "(not set)"}`);
 
-     // Split editor command and arguments
-     const editorParts = editor.split(/\s+/);
-     let editorCmd = editorParts[0];
+    let editor = process.env.EDITOR || process.env.VISUAL;
 
-     // Resolve relative paths or command names to absolute paths
-     if (!editorCmd.startsWith("/")) {
-       try {
-         const resolved = execSync(`which ${editorCmd}`, {
-           encoding: "utf-8",
-         }).trim();
-         if (resolved && existsSync(resolved)) {
-           editorCmd = resolved;
-           console.log(`${BLUE}  Resolved to: ${editorCmd}${NC}`);
-         }
-       } catch {
-         // which failed, try to use as-is
-       }
-     }
+    // If no editor is set, use nano explicitly
+    if (!editor) {
+      // Try to find nano in common locations
+      const nanoPaths = [
+        "/usr/bin/nano",
+        "/bin/nano",
+        "/opt/homebrew/bin/nano",
+      ];
+      for (const path of nanoPaths) {
+        if (existsSync(path)) {
+          editor = path;
+          console.log(`${BLUE}  Using default editor: ${editor}${NC}`);
+          break;
+        }
+      }
 
-     if (!existsSync(editorCmd)) {
-       throw new Error(`Editor "${editorCmd}" not found.`);
-     }
-     
-     // CRITICAL: Never allow vi to be used
-     if (editorCmd.includes("/vi") && !editorCmd.includes("nano") && !editorCmd.includes("pico")) {
-       console.log(`${YELLOW}⚠ Warning: Editor "${editorCmd}" is vi, forcing nano instead${NC}`);
-       const nanoPaths = [
-         "/usr/bin/nano",
-         "/bin/nano",
-         "/opt/homebrew/bin/nano",
-       ];
-       let foundNano = false;
-       for (const path of nanoPaths) {
-         if (existsSync(path)) {
-           editorCmd = path;
-           foundNano = true;
-           console.log(`${GREEN}✓ Using ${editorCmd} instead${NC}`);
-           break;
-         }
-       }
-       if (!foundNano) {
-         throw new Error("Could not find nano editor. Please install nano or set $EDITOR to a non-vi editor.");
-       }
-     }
+      if (!editor) {
+        throw new Error(
+          "No editor found. Please install nano or set $EDITOR environment variable."
+        );
+      }
+    } else {
+      console.log(`${BLUE}  Using editor from environment: ${editor}${NC}`);
+    }
 
-     console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
+    // Split editor command and arguments
+    const editorParts = editor.split(/\s+/);
+    let editorCmd = editorParts[0];
+
+    // Resolve relative paths or command names to absolute paths
+    if (!editorCmd.startsWith("/")) {
+      try {
+        const resolved = execSync(`which ${editorCmd}`, {
+          encoding: "utf-8",
+        }).trim();
+        if (resolved && existsSync(resolved)) {
+          editorCmd = resolved;
+          console.log(`${BLUE}  Resolved to: ${editorCmd}${NC}`);
+        }
+      } catch {
+        // which failed, try to use as-is
+      }
+    }
+
+    if (!existsSync(editorCmd)) {
+      throw new Error(`Editor "${editorCmd}" not found.`);
+    }
+
+    // CRITICAL: Never allow vi to be used
+    if (
+      editorCmd.includes("/vi") &&
+      !editorCmd.includes("nano") &&
+      !editorCmd.includes("pico")
+    ) {
+      console.log(
+        `${YELLOW}⚠ Warning: Editor "${editorCmd}" is vi, forcing nano instead${NC}`
+      );
+      const nanoPaths = [
+        "/usr/bin/nano",
+        "/bin/nano",
+        "/opt/homebrew/bin/nano",
+      ];
+      let foundNano = false;
+      for (const path of nanoPaths) {
+        if (existsSync(path)) {
+          editorCmd = path;
+          foundNano = true;
+          console.log(`${GREEN}✓ Using ${editorCmd} instead${NC}`);
+          break;
+        }
+      }
+      if (!foundNano) {
+        throw new Error(
+          "Could not find nano editor. Please install nano or set $EDITOR to a non-vi editor."
+        );
+      }
+    }
+
+    console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
 
     await new Promise<void>((resolve, reject) => {
-      // Use execFile for better control and to avoid shell interpretation
+      // Use spawn with stdio inherit to properly wait for editor
       const editorArgs = [...editorParts.slice(1), tempFile];
 
-      const proc = execFile(editorCmd, editorArgs, {
+      const proc = spawn(editorCmd, editorArgs, {
         stdio: "inherit",
+        shell: false,
       });
 
-      proc.on("exit", (code) => {
+      proc.on("exit", (code, signal) => {
         if (code === 0 || code === null) {
           resolve();
+        } else if (signal) {
+          // Editor was killed by signal (e.g., Ctrl+C)
+          reject(new Error(`Editor was terminated by signal: ${signal}`));
         } else {
           reject(new Error(`Editor exited with code ${code}`));
         }
