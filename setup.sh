@@ -101,6 +101,12 @@ echo -e "${BLUE}Configuring Caddy for ${STREAM_DOMAIN}...${NC}"
 EXPECTED_CADDYFILE="/tmp/caddyfile.expected"
 cat <<EOF > "$EXPECTED_CADDYFILE"
 ${STREAM_DOMAIN} {
+    # Route webhook requests to the correct Bento stream endpoint
+    # Bento streams mode prefixes paths with stream ID (e.g., /ingest_email/webhooks/resend)
+    handle_path /webhooks/resend {
+        reverse_proxy localhost:4195/ingest_email/webhooks/resend
+    }
+    # All other requests go to Bento root
     reverse_proxy localhost:4195
 }
 EOF
