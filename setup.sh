@@ -279,10 +279,9 @@ pipeline:
         let signed_payload = \$svix_id + "." + \$svix_timestamp + "." + \$raw_body
         
         # Compute HMAC-SHA256 signature
-        # Bento bloblang uses: crypto.hmac_sha256(secret, message) or hmac_sha256(message, secret)
+        # Bento bloblang crypto functions: crypto.hmac_sha256(secret, message)
         let webhook_secret = "${RESEND_WEBHOOK_SECRET}"
-        # Try both possible function signatures
-        let computed_signature = crypto.hmac_sha256(\$webhook_secret, \$signed_payload) | hmac_sha256(\$signed_payload, \$webhook_secret)
+        let computed_signature = crypto.hmac_sha256(\$webhook_secret, \$signed_payload)
         
         # Svix signature format is "v1,<signature>" - extract the signature part
         let expected_sig = "v1," + \$computed_signature
@@ -339,16 +338,16 @@ output_resources:
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
 
-input:
-  resource: s2_inbox_reader
-
-pipeline:
-  processors:
-    - bloblang: |
-        # Extract relevant fields from Resend Payload
-        let original_text = this.data.text | ""
-        let sender = this.data.from
-        let subject = this.data.subject
+    input:
+      resource: s2_inbox_reader
+    
+    pipeline:
+      processors:
+        - bloblang: |
+            # Extract relevant fields from Resend Payload
+            let original_text = this.data.text | ""
+            let sender = this.data.from
+            let subject = this.data.subject
         let recipient_email = this.data.to[0] | ""
 
         # Extract inbox name from recipient email (e.g., "reverser@domain.com" -> "reverser")
@@ -369,11 +368,11 @@ pipeline:
         # Construct Resend API Payload with automatically determined emails
         root.from = \$inbox_name.capitalize() + " <" + \$sender_email + ">"
         root.to = [\$receiver]
-        root.subject = "Re: " + \$subject
+            root.subject = "Re: " + \$subject
         root.html = "<p>Here is your transformed text:</p><blockquote>" + \$transformed_text + "</blockquote>"
 
-output:
-  resource: s2_outbox_writer
+    output:
+      resource: s2_outbox_writer
 EOF
 
 # Stream 3: Send - S2 Outbox -> Resend API
@@ -390,18 +389,18 @@ input_resources:
       region: "us-east-1"
       delete_objects: true
 
-input:
-  resource: s2_outbox_reader
-
-output:
-  http_client:
-    url: https://api.resend.com/emails
-    verb: POST
-    headers:
+    input:
+      resource: s2_outbox_reader
+      
+    output:
+      http_client:
+        url: https://api.resend.com/emails
+        verb: POST
+        headers:
       Authorization: "Bearer ${RESEND_API_KEY}"
-      Content-Type: "application/json"
-    retries: 3
-    # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
+          Content-Type: "application/json"
+        retries: 3
+        # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
 EOF
 
 # 8. Systemd Service Setup
