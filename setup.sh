@@ -169,9 +169,35 @@ fi
 # 6. Install Bento (Stream Processor)
 if ! command -v bento &> /dev/null; then
     echo -e "${BLUE}Installing Bento...${NC}"
-    # Using the official script to install the binary to /usr/bin
-    curl -Lsf https://github.com/warpstreamlabs/bento/releases/latest/download/bento-linux-amd64.tar.gz | tar -xz -C /usr/bin bento
-    chmod +x /usr/bin/bento
+    BENTO_TMP=$(mktemp)
+    MAX_RETRIES=3
+    RETRY_COUNT=0
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        if curl -Lf --max-time 30 https://github.com/warpstreamlabs/bento/releases/latest/download/bento-linux-amd64.tar.gz -o "$BENTO_TMP" 2>/dev/null; then
+            # Verify the downloaded file is a valid gzip archive
+            if gzip -t "$BENTO_TMP" 2>/dev/null; then
+                tar -xz -C /usr/bin -f "$BENTO_TMP" bento
+                if [ $? -eq 0 ] && [ -f /usr/bin/bento ]; then
+                    chmod +x /usr/bin/bento
+                    rm -f "$BENTO_TMP"
+                    break
+                else
+                    echo -e "${YELLOW}Extraction failed, retrying...${NC}"
+                fi
+            else
+                echo -e "${YELLOW}Downloaded file is corrupted, retrying...${NC}"
+            fi
+        fi
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+            sleep 2
+        fi
+    done
+    rm -f "$BENTO_TMP"
+    if ! command -v bento &> /dev/null; then
+        echo -e "${RED}Error: Failed to install Bento after $MAX_RETRIES attempts${NC}"
+        exit 1
+    fi
 else
     echo -e "${GREEN}Bento is already installed.${NC}"
 fi
