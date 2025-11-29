@@ -272,8 +272,10 @@ output:
   resource: s2_inbox_writer
 EOF
 
-# Stream 2: Process - S2 Inbox -> Reverse Text -> S2 Outbox
-cat <<EOF > /etc/bento/streams/process_reverser.yaml
+# Stream 2: Process and Send - S2 Inbox -> Apply Tool Logic -> Resend API
+# Business logic is defined in ${TOOLS_ROOT}/index.ts (reverser function)
+# This bloblang implementation matches that function exactly
+cat <<EOF > /etc/bento/streams/send_email.yaml
 input_resources:
   - label: s2_inbox_reader
     aws_s3:
@@ -285,17 +287,6 @@ input_resources:
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
       delete_objects: true
-
-output_resources:
-  - label: s2_outbox_writer
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      path: 'outbox/\${!uuid_v4()}.json'
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
 
 input:
   resource: s2_inbox_reader
@@ -325,27 +316,6 @@ pipeline:
         root.to = [\$receiver]
         root.subject = "Re: " + \$subject
         root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
-
-output:
-  resource: s2_outbox_writer
-EOF
-
-# Stream 3: Egress - S2 Outbox -> Resend API
-cat <<EOF > /etc/bento/streams/send_email.yaml
-input_resources:
-  - label: s2_outbox_reader
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      prefix: outbox/
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-      delete_objects: true
-
-input:
-  resource: s2_outbox_reader
 
 output:
   http_client:
@@ -544,7 +514,7 @@ fi
 systemctl stop bento 2>/dev/null || true
 sleep 2
 # Verify Bento stream files exist
-for stream_file in ingest_email.yaml process_reverser.yaml send_email.yaml; do
+for stream_file in ingest_email.yaml send_email.yaml; do
     if [ ! -f /etc/bento/streams/$stream_file ]; then
         echo -e "${RED}Error: Bento stream file not found at /etc/bento/streams/$stream_file${NC}"
         exit 1
