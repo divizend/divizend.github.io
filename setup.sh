@@ -468,6 +468,14 @@ input:
     auth_token: "${S2_ACCESS_TOKEN}"
     cache: s2_outbox_cache
 
+pipeline:
+  processors:
+    # Ensure the payload is valid JSON for Resend API
+    - bloblang: |
+        # The payload from transform_email should already be in the correct format
+        # Just ensure it's properly structured as JSON
+        root = this
+
 output:
   http_client:
     url: https://api.resend.com/emails
