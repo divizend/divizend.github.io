@@ -5,6 +5,7 @@
 creation_rules:
   - path_regex: .*secrets.*\.yaml$
     age: >-
+      age15t93kewk37kpmezd5524gunc6qrk5tde5u9enr5lpl2dtdr5kfps2py4hk,
       age1g4xuh5wecvuz20s90uc2vhjw3ytg0g24wxrph9mezvyu6339w3nqqhvkz5
     # Multiple age public keys can be added (comma-separated)
     # Keys will be automatically added/updated by deploy.sh and setup.sh
