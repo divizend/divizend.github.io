@@ -299,7 +299,8 @@ if ! "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
         fi
         
         # If it's a permission error, the token might need to be refreshed or there's a config issue
-        if echo "$CREATE_OUTPUT" | grep -qi "not authorized\|permission\|unauthorized"; then
+        # Check for various forms of permission/authorization errors
+        if echo "$CREATE_OUTPUT" | grep -qiE "not authorized|permission|unauthorized|Basin not authorized"; then
             if [ $attempt -lt 3 ]; then
                 echo -e "${YELLOW}Retrying basin creation (attempt $attempt/3)...${NC}"
                 # Re-set the token and try again
@@ -338,10 +339,16 @@ if ! "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
                 fi
             fi
         else
-            # Some other error - show it and exit
-            echo -e "${RED}Error: Failed to create S2 basin '${S2_BASIN}':${NC}"
+            # Some other error - show it but don't exit (might be transient)
+            echo -e "${YELLOW}Warning: Basin creation failed with unexpected error:${NC}"
             echo "$CREATE_OUTPUT" | sed 's/^/  /'
-            exit 1
+            if [ $attempt -lt 3 ]; then
+                echo -e "${YELLOW}Retrying...${NC}"
+                sleep 1
+            else
+                echo -e "${YELLOW}Basin creation failed after 3 attempts. Continuing anyway.${NC}"
+                CREATE_SUCCESS=false
+            fi
         fi
     done
     
