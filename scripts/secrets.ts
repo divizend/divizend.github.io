@@ -272,8 +272,13 @@ async function editSecrets(): Promise<void> {
      }
      
      // CRITICAL SAFETY CHECK: Never allow vi to be used
-     // Check if editorCmd contains vi (but not nano/pico in the path)
-     if (editorCmd.includes("/vi") && !editorCmd.includes("nano") && !editorCmd.includes("pico")) {
+     // Check BEFORE any output to catch it early
+     const isVi = editorCmd === "/usr/bin/vi" || 
+                  editorCmd === "/bin/vi" || 
+                  editorCmd.endsWith("/vi") ||
+                  (editorCmd.includes("/vi") && !editorCmd.includes("nano") && !editorCmd.includes("pico"));
+     
+     if (isVi) {
        console.log(`${YELLOW}⚠ Warning: Detected vi (${editorCmd}), forcing nano instead${NC}`);
        const nanoPaths = [
          "/usr/bin/nano",
@@ -294,12 +299,12 @@ async function editSecrets(): Promise<void> {
        }
      }
      
-     // Additional check: verify the final editorCmd is not vi
-     if (editorCmd === "/usr/bin/vi" || editorCmd === "/bin/vi" || editorCmd.endsWith("/vi")) {
-       throw new Error(`Editor "${editorCmd}" is vi, which is not allowed. Please set $EDITOR to nano or another editor.`);
+     // Final verification before proceeding - throw error if still vi
+     if (editorCmd === "/usr/bin/vi" || editorCmd === "/bin/vi" || (editorCmd.endsWith("/vi") && !editorCmd.includes("nano") && !editorCmd.includes("pico"))) {
+       throw new Error(`Editor "${editorCmd}" is vi, which is not allowed. This should not happen - please report this bug.`);
      }
 
-    console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
+     console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
     console.log(
       `${YELLOW}Debug: Using editor: ${editorCmd}, args: ${JSON.stringify([
         ...editorParts.slice(1),
