@@ -133,12 +133,23 @@ if ssh -t root@${SERVER_IP} "${SSH_CMD}bash /tmp/setup.sh.local; EXIT_CODE=\$?; 
     [[ -n "$S2_ACCESS_TOKEN" ]] && TEST_ENV="${TEST_ENV} S2_ACCESS_TOKEN='${S2_ACCESS_TOKEN}'"
     [[ -n "$RESEND_API_KEY" ]] && TEST_ENV="${TEST_ENV} RESEND_API_KEY='${RESEND_API_KEY}'"
     
-    if ssh root@${SERVER_IP} "cd /opt/bento-sync && ${TEST_ENV} bun sync.ts 2>&1"; then
-        echo "[INFO] ✓ Sync script test passed."
-    else
-        echo "[WARNING] ⚠ Sync script test had issues, but deployment succeeded."
-        echo "[WARNING] Check Bento API accessibility and environment variables."
+    SYNC_OUTPUT=$(ssh root@${SERVER_IP} "cd /opt/bento-sync && ${TEST_ENV} bun sync.ts 2>&1")
+    SYNC_EXIT=$?
+    
+    # Check for warnings in sync output
+    if echo "$SYNC_OUTPUT" | grep -q "⚠\|warning\|Warning\|WARNING"; then
+        echo "[ERROR] Sync script test failed with warnings:"
+        echo "$SYNC_OUTPUT"
+        exit 1
     fi
+    
+    if [ $SYNC_EXIT -ne 0 ]; then
+        echo "[ERROR] Sync script test failed with exit code $SYNC_EXIT:"
+        echo "$SYNC_OUTPUT"
+        exit 1
+    fi
+    
+    echo "[INFO] ✓ Sync script test passed."
 else
     echo "[ERROR] Deployment failed. The setup script on the server terminated with an error."
     exit 1

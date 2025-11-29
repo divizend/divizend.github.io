@@ -133,7 +133,10 @@ if [[ -f "/tmp/.sops.yaml" ]]; then
             rm -f "$TEMP_SECRETS"
             echo -e "${GREEN}✓ Secrets re-encrypted with all recipients${NC}"
         else
-            echo -e "${YELLOW}⚠ Could not decrypt existing secrets, will create new ones during setup${NC}"
+            echo -e "${RED}Error: Could not decrypt existing secrets.encrypted.yaml${NC}" >&2
+            echo -e "${RED}This indicates a problem with the encryption keys or the secrets file.${NC}" >&2
+            echo -e "${RED}Please ensure secrets.encrypted.yaml is properly encrypted and accessible.${NC}" >&2
+            exit 1
         fi
     fi
 fi

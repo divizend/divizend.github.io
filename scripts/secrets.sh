@@ -94,7 +94,7 @@ case "$command" in
         fi
         
         echo "✓ Added recipient to .sops.yaml"
-        echo "⚠ Remember to re-encrypt secrets with: $0 edit"
+        # Note: Secrets will be automatically re-encrypted when next edited
         ;;
     
     *)

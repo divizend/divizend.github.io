@@ -221,11 +221,11 @@ async function syncStream(
       return true;
     } else {
       const body = await response.text();
-      console.warn(
-        `    ⚠ Stream '${name}' sync returned HTTP ${response.status}`
+      console.error(
+        `    ✗ Stream '${name}' sync returned HTTP ${response.status}`
       );
       if (body) {
-        console.warn(`    Response: ${body}`);
+        console.error(`    Response: ${body}`);
       }
       return false;
     }
@@ -314,22 +314,18 @@ async function main() {
   // Check if Bento API is accessible
   console.log(`🔍 Checking Bento API at ${BENTO_API_URL}...`);
   try {
-    const response = await fetch(`${BENTO_API_URL}/ready`);
+    const response = await fetch(`${BENTO_API_URL}/ready`, {
+      signal: AbortSignal.timeout(5000),
+    });
     if (!response.ok) {
-      console.warn(
-        `⚠ Warning: Bento API at ${BENTO_API_URL} is not accessible`
+      console.error(
+        `❌ Error: Bento API at ${BENTO_API_URL} returned HTTP ${response.status}`
       );
-      console.warn(
-        "This is expected if Bento is not running or not publicly accessible"
-      );
-      process.exit(0);
+      process.exit(1);
     }
   } catch (error) {
-    console.warn(`⚠ Warning: Bento API at ${BENTO_API_URL} is not accessible`);
-    console.warn(
-      "This is expected if Bento is not running or not publicly accessible"
-    );
-    process.exit(0);
+    console.error(`❌ Error: Bento API at ${BENTO_API_URL} is not accessible: ${error}`);
+    process.exit(1);
   }
 
   // Sync streams to Bento
@@ -341,11 +337,18 @@ async function main() {
     }
   }
 
+  const totalStreams = Object.keys(substitutedStreams).length;
   console.log(
-    `✅ Stream sync completed (${successCount}/${
-      Object.keys(substitutedStreams).length
-    } successful)`
+    `✅ Stream sync completed (${successCount}/${totalStreams} successful)`
   );
+  
+  // Fail if not all streams synced successfully
+  if (successCount !== totalStreams) {
+    console.error(
+      `❌ Error: Only ${successCount}/${totalStreams} streams synced successfully`
+    );
+    process.exit(1);
+  }
 }
 
 // Run if executed directly
