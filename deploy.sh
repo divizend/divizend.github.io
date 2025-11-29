@@ -41,11 +41,20 @@ if ssh -t root@${SERVER_IP} "${SSH_CMD}bash /tmp/setup.sh.local; EXIT_CODE=\$?; 
     echo "[INFO] Deployment complete."
     
     # Test sync script functionality
-    echo "[TEST] Testing sync script..."
-    if ssh root@${SERVER_IP} "cd /opt/bento-sync && BENTO_API_URL='http://localhost:4195' TOOLS_ROOT_GITHUB='${TOOLS_ROOT_GITHUB:-https://github.com/divizend/divizend.github.io/main/bentotools}' S2_BASIN='${S2_BASIN:-}' BASE_DOMAIN='${BASE_DOMAIN:-}' S2_ACCESS_TOKEN='${S2_ACCESS_TOKEN:-}' RESEND_API_KEY='${RESEND_API_KEY:-}' bun sync.ts 2>&1 | head -n 20"; then
-        echo "[INFO] Sync script test completed."
+    echo "[TEST] Testing sync.ts script..."
+    # Prepare environment variables for test
+    TEST_ENV="BENTO_API_URL='http://localhost:4195'"
+    TEST_ENV="${TEST_ENV} TOOLS_ROOT_GITHUB='${TOOLS_ROOT_GITHUB:-https://github.com/divizend/divizend.github.io/main/bentotools}'"
+    [[ -n "$S2_BASIN" ]] && TEST_ENV="${TEST_ENV} S2_BASIN='${S2_BASIN}'"
+    [[ -n "$BASE_DOMAIN" ]] && TEST_ENV="${TEST_ENV} BASE_DOMAIN='${BASE_DOMAIN}'"
+    [[ -n "$S2_ACCESS_TOKEN" ]] && TEST_ENV="${TEST_ENV} S2_ACCESS_TOKEN='${S2_ACCESS_TOKEN}'"
+    [[ -n "$RESEND_API_KEY" ]] && TEST_ENV="${TEST_ENV} RESEND_API_KEY='${RESEND_API_KEY}'"
+    
+    if ssh root@${SERVER_IP} "cd /opt/bento-sync && ${TEST_ENV} bun sync.ts 2>&1"; then
+        echo "[INFO] ✓ Sync script test passed."
     else
-        echo "[WARNING] Sync script test had issues, but deployment succeeded."
+        echo "[WARNING] ⚠ Sync script test had issues, but deployment succeeded."
+        echo "[WARNING] Check Bento API accessibility and environment variables."
     fi
 else
     echo "[ERROR] Deployment failed. The setup script on the server terminated with an error."

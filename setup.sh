@@ -423,9 +423,18 @@ if ! command -v bun &> /dev/null; then
     echo -e "${BLUE}Installing bun...${NC}"
     curl -fsSL https://bun.sh/install | bash
     export PATH="$HOME/.bun/bin:$PATH"
+    # Ensure bun is in system PATH for systemd
+    if [ -f "$HOME/.bun/bin/bun" ] && [ ! -f /usr/local/bin/bun ]; then
+        ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun 2>/dev/null || cp "$HOME/.bun/bin/bun" /usr/local/bin/bun 2>/dev/null || true
+    fi
     echo -e "${GREEN}Bun installed.${NC}"
 else
     echo -e "${GREEN}Bun is already installed.${NC}"
+    # Ensure bun is accessible system-wide
+    BUN_PATH=$(command -v bun)
+    if [ -n "$BUN_PATH" ] && [ ! -f /usr/local/bin/bun ]; then
+        ln -sf "$BUN_PATH" /usr/local/bin/bun 2>/dev/null || cp "$BUN_PATH" /usr/local/bin/bun 2>/dev/null || true
+    fi
 fi
 
 # Create directory for sync daemon

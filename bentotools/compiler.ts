@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * TypeScript to Bento Streams Compiler
- * 
+ *
  * This compiler processes the exports from index.ts and generates Bento stream configurations.
  * - If an export is a function (typeof function), it's a tool function and will be called via bun
  * - If an export is an object, it's treated as a Bento stream definition
@@ -28,50 +28,52 @@ function isFunction(value: any): value is ToolFunction {
 // Process exports and generate stream configurations
 function compileStreams(): Map<string, BentoStreamConfig> {
   const streams = new Map<string, BentoStreamConfig>();
-  
+
   for (const [key, value] of Object.entries(module)) {
     // Skip default export and non-stream exports
     if (key === "default" || key.startsWith("_")) {
       continue;
     }
-    
+
     if (isFunction(value)) {
       // This is a tool function - it will be called by transform_email stream
       // Tool functions don't generate stream configs, they're used within streams
       console.log(`✓ Found tool function: ${key}`);
       continue;
     }
-    
+
     // This is a stream definition
     if (value && typeof value === "object" && value.input && value.output) {
       streams.set(key, value as BentoStreamConfig);
       console.log(`✓ Found stream definition: ${key}`);
     } else {
-      console.warn(`⚠ Skipping export '${key}': not a function or stream definition`);
+      console.warn(
+        `⚠ Skipping export '${key}': not a function or stream definition`
+      );
     }
   }
-  
+
   return streams;
 }
 
 // Convert stream config to YAML
 function streamToYAML(streamName: string, config: BentoStreamConfig): string {
   const yaml: string[] = [];
-  
+
   // Input
   yaml.push("input:");
   yaml.push(formatYAML(config.input, 2));
-  
+
   // Pipeline (if present)
   if (config.pipeline) {
     yaml.push("pipeline:");
     yaml.push(formatYAML(config.pipeline, 2));
   }
-  
+
   // Output
   yaml.push("output:");
   yaml.push(formatYAML(config.output, 2));
-  
+
   return yaml.join("\n");
 }
 
@@ -79,7 +81,7 @@ function streamToYAML(streamName: string, config: BentoStreamConfig): string {
 function formatYAML(obj: any, indent: number = 0): string {
   const spaces = " ".repeat(indent);
   const lines: string[] = [];
-  
+
   if (Array.isArray(obj)) {
     for (const item of obj) {
       if (typeof item === "object" && item !== null) {
@@ -94,7 +96,7 @@ function formatYAML(obj: any, indent: number = 0): string {
       if (value === null || value === undefined) {
         continue;
       }
-      
+
       if (Array.isArray(value)) {
         lines.push(`${spaces}${key}:`);
         for (const item of value) {
@@ -115,7 +117,7 @@ function formatYAML(obj: any, indent: number = 0): string {
   } else {
     lines.push(`${spaces}${formatValue(obj)}`);
   }
-  
+
   return lines.join("\n");
 }
 
@@ -123,7 +125,12 @@ function formatYAML(obj: any, indent: number = 0): string {
 function formatValue(value: any): string {
   if (typeof value === "string") {
     // Check if it needs quoting
-    if (value.includes(":") || value.includes("#") || value.includes("|") || value.includes("$")) {
+    if (
+      value.includes(":") ||
+      value.includes("#") ||
+      value.includes("|") ||
+      value.includes("$")
+    ) {
       return JSON.stringify(value);
     }
     return value;
@@ -136,27 +143,28 @@ function formatValue(value: any): string {
 
 // Main compilation function
 async function main() {
-  console.log("🔧 Compiling TypeScript exports to Bento stream configurations...\n");
-  
+  console.log(
+    "🔧 Compiling TypeScript exports to Bento stream configurations...\n"
+  );
+
   try {
     const streams = compileStreams();
-    
+
     if (streams.size === 0) {
       console.error("❌ No stream definitions found in exports");
       process.exit(1);
     }
-    
+
     console.log(`\n📦 Generated ${streams.size} stream configuration(s)\n`);
-    
+
     // Output streams as JSON for Bento API consumption
     const streamsJSON: Record<string, BentoStreamConfig> = {};
     for (const [name, config] of streams.entries()) {
       streamsJSON[name] = config;
     }
-    
+
     // Write to stdout as JSON (for Bento API)
     console.log(JSON.stringify(streamsJSON, null, 2));
-    
   } catch (error) {
     console.error("❌ Compilation failed:", error);
     process.exit(1);
