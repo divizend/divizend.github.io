@@ -269,68 +269,68 @@ output_resources:
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
 
-    input:
-      http_server:
+input:
+  http_server:
     path: /webhooks/resend
-        allowed_verbs: [POST]
-        timeout: 5s
-    
-    pipeline:
-      processors:
-        # In a strict production environment, you would verify the svix-signature here.
-        # Passing raw payload to stream for durability.
-        - mapping: root = this
-    
-    output:
-      resource: s2_inbox_writer
+    allowed_verbs: [POST]
+    timeout: 5s
+
+pipeline:
+  processors:
+    # In a strict production environment, you would verify the svix-signature here.
+    # Passing raw payload to stream for durability.
+    - mapping: root = this
+
+output:
+  resource: s2_inbox_writer
 EOF
 
 # Stream 2: Process - S2 Inbox -> Reverse Text -> S2 Outbox
 cat <<EOF > /etc/bento/streams/process_reverser.yaml
-    input:
-      resource: s2_inbox_reader
-    
-    pipeline:
-      processors:
-        - bloblang: |
-            # Extract relevant fields from Resend Payload
-            let original_text = this.data.text | ""
-            let sender = this.data.from
-            let subject = this.data.subject
+input:
+  resource: s2_inbox_reader
+
+pipeline:
+  processors:
+    - bloblang: |
+        # Extract relevant fields from Resend Payload
+        let original_text = this.data.text | ""
+        let sender = this.data.from
+        let subject = this.data.subject
 
         # Automatically determine receiver (original sender) and sender (reverser@domain)
         let receiver = \$sender
         let sender_domain = "${BASE_DOMAIN}"
         let sender_email = "reverser@" + \$sender_domain
 
-            # Business Logic: Reverse the text
-            # Splitting by empty string creates array of chars, reverse array, join back
-            let reversed_text = \$original_text.split("").reverse().join("")
+        # Business Logic: Reverse the text
+        # Splitting by empty string creates array of chars, reverse array, join back
+        let reversed_text = \$original_text.split("").reverse().join("")
 
         # Construct Resend API Payload with automatically determined emails
         root.from = "Reverser <" + \$sender_email + ">"
         root.to = [\$receiver]
-            root.subject = "Re: " + \$subject
-            root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
+        root.subject = "Re: " + \$subject
+        root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
 
-    output:
-      resource: s2_outbox_writer
+output:
+  resource: s2_outbox_writer
 EOF
 
 # Stream 3: Egress - S2 Outbox -> Resend API
 cat <<EOF > /etc/bento/streams/send_email.yaml
-    input:
-      resource: s2_outbox_reader
-      
-    output:
-      http_client:
-        url: https://api.resend.com/emails
-        verb: POST
-        headers:
+input:
+  resource: s2_outbox_reader
+
+output:
+  http_client:
+    url: https://api.resend.com/emails
+    verb: POST
+    headers:
       Authorization: "Bearer ${RESEND_API_KEY}"
-          Content-Type: "application/json"
-        retries: 3
-        # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
+      Content-Type: "application/json"
+    retries: 3
+    # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
 EOF
 
 # 8. Systemd Service Setup
