@@ -237,67 +237,35 @@ fi
 # 6.5. Install S2 CLI
 echo -e "${BLUE}Installing S2 CLI...${NC}"
 if ! command -v s2 &> /dev/null; then
-    # Try downloading binary release first (faster and doesn't require compilation)
-    echo -e "${BLUE}Downloading S2 CLI binary...${NC}"
-    ARCH=$(uname -m)
-    [ "$ARCH" = "x86_64" ] && ARCH="amd64" || ARCH="arm64"
-    
-    # Try multiple possible repository names and URL patterns
-    S2_REPOS=("s2-streamstore/s2" "s2streamstore/s2" "s2/s2")
-    S2_INSTALLED=false
-    
-    for REPO in "${S2_REPOS[@]}"; do
-        # Try to get latest release tag
-        S2_VERSION=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
-        
-        if [[ -n "$S2_VERSION" ]]; then
-            # Try different URL patterns
-            for URL_PATTERN in \
-                "https://github.com/${REPO}/releases/download/${S2_VERSION}/s2-linux-${ARCH}" \
-                "https://github.com/${REPO}/releases/download/${S2_VERSION}/s2_${S2_VERSION}_linux_${ARCH}" \
-                "https://github.com/${REPO}/releases/download/${S2_VERSION}/s2-${ARCH}-linux"
-            do
-                if curl -Lf "$URL_PATTERN" -o /usr/local/bin/s2 2>/dev/null && chmod +x /usr/local/bin/s2 && /usr/local/bin/s2 --version >/dev/null 2>&1; then
-                    echo -e "${GREEN}S2 CLI installed via binary from ${REPO}.${NC}"
-                    S2_INSTALLED=true
-                    break 2
-                fi
-            done
+    # Use official install script (installs to ~/.s2/bin)
+    echo -e "${BLUE}Installing S2 CLI via official install script...${NC}"
+    if curl -fsSL https://s2.dev/install.sh | bash >/dev/null 2>&1; then
+        # Add ~/.s2/bin to PATH for current session
+        export PATH="$HOME/.s2/bin:$PATH"
+        # Also add to system PATH for future sessions
+        if ! grep -q "~/.s2/bin" /etc/profile 2>/dev/null; then
+            echo 'export PATH="$HOME/.s2/bin:$PATH"' >> /etc/profile
         fi
-    done
-    
-    if [ "$S2_INSTALLED" = false ]; then
-        # Fallback: try installing via cargo (requires build tools)
-        echo -e "${YELLOW}Binary download failed, trying cargo install...${NC}"
-        if ! command -v cargo &> /dev/null; then
-            echo -e "${BLUE}Installing Rust/Cargo for S2 CLI...${NC}"
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-            export PATH="$HOME/.cargo/bin:$PATH"
+        if command -v s2 &> /dev/null || [ -f "$HOME/.s2/bin/s2" ]; then
+            echo -e "${GREEN}S2 CLI installed successfully.${NC}"
+            S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
+            # Configure S2 CLI with access token
+            "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" 2>/dev/null || true
+        else
+            echo -e "${RED}Error: S2 CLI not found after installation${NC}"
+            exit 1
         fi
-        
-        echo -e "${YELLOW}Binary download failed. S2 CLI must be installed manually.${NC}"
-        echo -e "${YELLOW}Please install from: https://s2.dev/docs/quickstart${NC}"
-        echo -e "${YELLOW}Or use: cargo install --git https://github.com/s2-streamstore/s2${NC}"
-        exit 1
-    fi
-    
-    # Ensure cargo bin is in PATH for s2 command check
-    export PATH="$HOME/.cargo/bin:$PATH"
-    # Check if s2 exists in cargo bin or system PATH
-    if command -v s2 &> /dev/null || [ -f "$HOME/.cargo/bin/s2" ]; then
-        echo -e "${GREEN}S2 CLI installed successfully.${NC}"
-        # Use full path if needed
-        S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.cargo/bin/s2")
-        # Configure S2 CLI with access token
-        "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" 2>/dev/null || true
     else
-        echo -e "${RED}Error: S2 CLI not found after installation${NC}"
+        echo -e "${RED}Error: S2 CLI installation failed${NC}"
+        echo -e "${YELLOW}Please install manually from: https://s2.dev/docs/quickstart${NC}"
         exit 1
     fi
 else
     echo -e "${GREEN}S2 CLI is already installed.${NC}"
     # Ensure access token is configured
-    s2 config set --access-token "${S2_ACCESS_TOKEN}" 2>/dev/null || true
+    export PATH="$HOME/.s2/bin:$PATH"
+    S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
+    "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" 2>/dev/null || true
 fi
 
 # 7. Configure Bento (Streams Mode)
