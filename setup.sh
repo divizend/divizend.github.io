@@ -346,10 +346,10 @@ output_resources:
     pipeline:
       processors:
         - bloblang: |
-            # Extract relevant fields from Resend Payload
-            let original_text = this.data.text | ""
-            let sender = this.data.from
-            let subject = this.data.subject
+        # Extract relevant fields from Resend Payload
+        let original_text = this.data.text | ""
+        let sender = this.data.from
+        let subject = this.data.subject
         let recipient_email = this.data.to[0] | ""
 
         # Extract inbox name from recipient email (e.g., "reverser@domain.com" -> "reverser")
