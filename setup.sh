@@ -470,11 +470,21 @@ input:
 
 pipeline:
   processors:
-    # Ensure the payload is valid JSON for Resend API
+    # Parse JSON if it's a string, otherwise use as-is
+    # Then ensure it's in the correct format for Resend API
     - bloblang: |
-        # The payload from transform_email should already be in the correct format
-        # Just ensure it's properly structured as JSON
-        root = this
+        # If the payload is a string, parse it as JSON
+        # Otherwise use it as-is (already parsed)
+        root = if this.type() == "string" { this.parse_json() } else { this }
+        
+        # Ensure all required fields are present for Resend API
+        # Resend expects: from, to (array), subject, html (or text)
+        root = {
+          "from": this.from | "",
+          "to": this.to | [],
+          "subject": this.subject | "",
+          "html": this.html | ""
+        }
 
 output:
   http_client:
