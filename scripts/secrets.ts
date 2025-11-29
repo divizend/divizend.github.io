@@ -285,12 +285,14 @@ async function editSecrets(): Promise<void> {
       // Use spawn with stdio inherit to properly wait for editor
       const editorArgs = [...editorParts.slice(1), tempFile];
 
+      console.log(`${BLUE}Starting editor process...${NC}`);
       const proc = spawn(editorCmd, editorArgs, {
         stdio: "inherit",
         shell: false,
       });
 
       proc.on("exit", (code, signal) => {
+        console.log(`${BLUE}Editor process exited (code: ${code}, signal: ${signal})${NC}`);
         if (code === 0 || code === null) {
           resolve();
         } else if (signal) {
@@ -302,10 +304,12 @@ async function editSecrets(): Promise<void> {
       });
 
       proc.on("error", (error) => {
+        console.error(`${RED}Editor process error: ${error.message}${NC}`);
         reject(new Error(`Failed to start editor: ${error.message}`));
       });
     });
 
+    console.log(`${BLUE}Reading edited file...${NC}`);
     // Read edited file and parse
     const edited = readFileSync(tempFile, "utf-8");
     const newSecrets: Record<string, string> = {};
