@@ -14,7 +14,7 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { spawn, execSync } from "child_process";
+import { spawn, execSync, execFile } from "child_process";
 
 const SCRIPT_DIR = new URL(".", import.meta.url).pathname.replace(
   "/scripts",
@@ -193,68 +193,68 @@ async function editSecrets(): Promise<void> {
     const tempFile = join(tmpdir(), `secrets-edit-${Date.now()}.txt`);
     writeFileSync(tempFile, envFormat, "utf-8");
 
-      // Open in editor
-      // Check multiple environment variables and common editors
-      let editor =
-        process.env.EDITOR ||
-        process.env.VISUAL ||
-        "nano";
-      
-      // If editor is just "nano", try to find the full path
-      if (editor === "nano") {
-        try {
-          const nanoPath = execSync("which nano", { encoding: "utf-8" }).trim();
-          if (nanoPath) {
-            editor = nanoPath;
-          }
-        } catch {
-          // If which fails, try common paths
-          const commonPaths = ["/usr/bin/nano", "/bin/nano", "/opt/homebrew/bin/nano"];
-          for (const path of commonPaths) {
-            if (existsSync(path)) {
-              editor = path;
-              break;
-            }
-          }
-        }
-      }
-      
-      console.log(`${BLUE}📝 Opening secrets in ${editor}...${NC}`);
+     // Open in editor
+     // Check multiple environment variables and common editors
+     let editor = process.env.EDITOR || process.env.VISUAL;
 
-      await new Promise<void>((resolve, reject) => {
-        // Use shell: false and explicitly call the editor
-        // Split editor command in case it has arguments (e.g., "code -w")
-        const editorParts = editor.split(/\s+/);
-        const editorCmd = editorParts[0];
-        const editorArgs = [...editorParts.slice(1), tempFile];
+     // If no editor is set, find nano explicitly
+     if (!editor) {
+       try {
+         const nanoPath = execSync("which nano", { encoding: "utf-8" }).trim();
+         if (nanoPath && existsSync(nanoPath)) {
+           editor = nanoPath;
+         }
+       } catch {
+         // If which fails, try common paths
+         const commonPaths = [
+           "/usr/bin/nano",
+           "/bin/nano",
+           "/opt/homebrew/bin/nano",
+         ];
+         for (const path of commonPaths) {
+           if (existsSync(path)) {
+             editor = path;
+             break;
+           }
+         }
+       }
+     }
 
-        const proc = spawn(editorCmd, editorArgs, {
-          stdio: "inherit",
-          shell: false,
-        });
+     if (!editor) {
+       throw new Error(
+         "No editor found. Please install nano or set $EDITOR environment variable."
+       );
+     }
 
-        proc.on("exit", (code) => {
-          if (code === 0 || code === null) {
-            resolve();
-          } else {
-            reject(new Error(`Editor exited with code ${code}`));
-          }
-        });
+     // Verify editor exists before trying to use it
+     const editorParts = editor.split(/\s+/);
+     const editorCmd = editorParts[0];
+     if (!existsSync(editorCmd)) {
+       throw new Error(`Editor "${editorCmd}" not found.`);
+     }
 
-        proc.on("error", (error) => {
-          // If spawn fails, it might be because the editor isn't found
-          // Try to provide a helpful error message
-          if (error.message.includes("ENOENT")) {
-            reject(
-              new Error(
-                `Editor "${editorCmd}" not found. Please install nano or set $EDITOR environment variable.`
-              )
-            );
-          } else {
-            reject(new Error(`Failed to start editor: ${error.message}`));
-          }
-        });
-      });
+     console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
+
+     await new Promise<void>((resolve, reject) => {
+       // Use execFile for better control and to avoid shell interpretation
+       const editorArgs = [...editorParts.slice(1), tempFile];
+       
+       const proc = execFile(editorCmd, editorArgs, {
+         stdio: "inherit",
+       });
+
+       proc.on("exit", (code) => {
+         if (code === 0 || code === null) {
+           resolve();
+         } else {
+           reject(new Error(`Editor exited with code ${code}`));
+         }
+       });
+
+       proc.on("error", (error) => {
+         reject(new Error(`Failed to start editor: ${error.message}`));
+       });
+     });
 
     // Read edited file and parse
     const edited = readFileSync(tempFile, "utf-8");
