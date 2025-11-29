@@ -189,9 +189,13 @@ get_config_value() {
                 was_prompted=true
             fi
         else
-            # Non-interactive, variable not set, exit
-            echo -e "${RED}Error: ${var_name} is required and not set in non-interactive mode.${NC}" >&2
-            exit 1
+            # Non-interactive, variable not set
+            if [[ -n "$error_msg" ]]; then
+                echo -e "${RED}Error: ${var_name} is required and not set in non-interactive mode.${NC}" >&2
+                exit 1
+            fi
+            # If error_msg is empty, allow empty value (optional variable)
+            var_value=""
         fi
     else
         if [[ -n "${SOPS_AGE_KEY:-}${SOPS_AGE_KEY_FILE:-}" ]]; then
