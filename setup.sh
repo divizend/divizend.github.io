@@ -899,6 +899,11 @@ test_tool() {
     # Ensure access token is configured
     "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1
     
+    # Ensure the outbox stream exists (create it if it doesn't)
+    set +e
+    "$S2_CMD" create-stream "s2://${S2_BASIN}/outbox" >/dev/null 2>&1
+    set -e
+    
     # S2 CLI syntax: echo <data> | s2 append s2://<basin>/<stream>
     # Access token is configured via s2 config set, not as a flag
     # S2_BASIN is already defined earlier in the script (converted from BASE_DOMAIN)
@@ -914,7 +919,22 @@ test_tool() {
         echo "$APPEND_OUTPUT" | sed 's/^/  /'
         
         # Check if it's a basin/stream not found error or permission error
-        if echo "$APPEND_OUTPUT" | grep -qiE "basin.*not found|stream.*not found|not authorized|permission|Basin not authorized"; then
+        if echo "$APPEND_OUTPUT" | grep -qiE "stream.*not found|Stream not found"; then
+            echo -e "${YELLOW}  Stream 'outbox' doesn't exist in basin '${S2_BASIN}'.${NC}"
+            echo -e "${YELLOW}  Attempting to create stream...${NC}"
+            set +e
+            if "$S2_CMD" create-stream "s2://${S2_BASIN}/outbox" >/dev/null 2>&1; then
+                echo -e "${GREEN}  Stream created, retrying append...${NC}"
+                if echo "$RESEND_PAYLOAD" | "$S2_CMD" append "s2://${S2_BASIN}/outbox" >/dev/null 2>&1; then
+                    echo -e "${GREEN}✓ Test email added to S2 outbox stream${NC}"
+                    APPEND_EXIT=0
+                fi
+            fi
+            set -e
+            if [ $APPEND_EXIT -ne 0 ]; then
+                echo -e "${YELLOW}  Please create the stream manually: s2 create-stream s2://${S2_BASIN}/outbox${NC}"
+            fi
+        elif echo "$APPEND_OUTPUT" | grep -qiE "basin.*not found|not authorized|permission|Basin not authorized"; then
             echo -e "${YELLOW}  This may be because the basin '${S2_BASIN}' doesn't exist yet.${NC}"
             echo -e "${YELLOW}  The basin creation failed earlier due to permission issues (a bug).${NC}"
             echo -e "${YELLOW}  Please create the basin manually: s2 create-basin ${S2_BASIN}${NC}"
