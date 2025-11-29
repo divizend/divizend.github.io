@@ -85,6 +85,9 @@ fi
 # Load secrets from encrypted file
 load_secrets_from_sops
 
+# Get GitHub Personal Access Token for triggering sync
+get_config_value GITHUB_PAT "Enter GitHub Personal Access Token (with repo scope)" "GitHub PAT is required for triggering sync" ""
+
 if ! git diff --quiet setup.sh; then
     echo "[INFO] Committing and pushing setup.sh..."
 git add setup.sh
@@ -122,6 +125,7 @@ SSH_CMD=""
 [[ -n "$TEST_EXPECTED_OUTPUT" ]] && SSH_CMD="${SSH_CMD}TEST_EXPECTED_OUTPUT=$(printf %q "$TEST_EXPECTED_OUTPUT") "
 [[ -n "$TOOLS_ROOT_GITHUB" ]] && SSH_CMD="${SSH_CMD}TOOLS_ROOT_GITHUB=$(printf %q "$TOOLS_ROOT_GITHUB") "
 [[ -n "$S2_BASIN" ]] && SSH_CMD="${SSH_CMD}S2_BASIN=$(printf %q "$S2_BASIN") "
+[[ -n "$GITHUB_PAT" ]] && SSH_CMD="${SSH_CMD}GITHUB_PAT=$(printf %q "$GITHUB_PAT") "
 
 if ssh -t root@${SERVER_IP} "${SSH_CMD}bash /tmp/setup.sh.local; EXIT_CODE=\$?; rm -rf /tmp/setup.sh.local /tmp/common.sh /tmp/templates /tmp/scripts /tmp/secrets.encrypted.yaml /tmp/.sops.yaml; exit \$EXIT_CODE"; then
     echo "[INFO] Deployment complete."

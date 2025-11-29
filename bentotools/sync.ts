@@ -68,7 +68,9 @@ async function fetchIndexTs(parsed: ParsedToolsRoot): Promise<string> {
   try {
     const localFile = Bun.file(localIndexPath);
     if (await localFile.exists()) {
-      console.log(`📥 Using local index.ts from ${process.cwd()}/${localIndexPath}...`);
+      console.log(
+        `📥 Using local index.ts from ${process.cwd()}/${localIndexPath}...`
+      );
       return await localFile.text();
     }
   } catch (error) {

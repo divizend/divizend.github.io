@@ -173,6 +173,14 @@ echo -e "4. Commit ${BLUE}secrets.encrypted.yaml${NC} and ${BLUE}.sops.yaml${NC}
 echo -e "5. ${RED}Never commit .age-key-* files (they contain private keys)${NC}"
 echo -e "\n${BLUE}Note: All secrets are stored in ${GREEN}secrets.encrypted.yaml${NC} (no .env file needed).${NC}"
 echo -e "${BLUE}Use ${GREEN}npm run secrets edit${NC} to edit secrets, ${GREEN}npm run secrets dump${NC} to view them, or ${GREEN}npm run secrets set <key> <value>${NC} to set individual secrets.${NC}"
+echo -e "\n${YELLOW}--- GitHub Personal Access Token Setup ---${NC}"
+echo -e "${BLUE}To enable automatic sync triggering after deployment:${NC}"
+echo -e "1. Go to: ${GREEN}https://github.com/settings/tokens${NC}"
+echo -e "2. Click ${GREEN}'Generate new token' > 'Generate new token (classic)'${NC}"
+echo -e "3. Give it a name (e.g., 'Bento Sync Trigger')"
+echo -e "4. Select scope: ${GREEN}'repo'${NC} (full control of private repositories)"
+echo -e "5. Generate and copy the token"
+echo -e "6. The token will be stored securely in ${GREEN}secrets.encrypted.yaml${NC}"
 echo -e "${YELLOW}Press Enter to continue...${NC}"
 read -r < /dev/tty || true
 

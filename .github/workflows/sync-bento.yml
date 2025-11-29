@@ -2,202 +2,85 @@ name: Sync Bento Tools
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'bentotools/**'
-  workflow_dispatch:
-    inputs:
-      tools_root_github:
-        description: 'TOOLS_ROOT_GITHUB (e.g., https://github.com/divizend/divizend.github.io/main/bentotools)'
-        required: false
-        type: string
-  repository_dispatch:
-    types: [bento-sync]
+    branches: [main]
+    paths: ['bentotools/**']
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
 
       - name: Install SOPS
         run: |
           curl -LO https://github.com/getsops/sops/releases/latest/download/sops-v3.8.1.linux
-          chmod +x sops-v3.8.1.linux
-          sudo mv sops-v3.8.1.linux /usr/local/bin/sops
+          chmod +x sops-v3.8.1.linux && sudo mv sops-v3.8.1.linux /usr/local/bin/sops
 
       - name: Decrypt secrets
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
         run: |
-          if [ -n "$SOPS_AGE_KEY" ] && [ -f secrets.encrypted.yaml ]; then
-            echo "$SOPS_AGE_KEY" > /tmp/age-key.txt
-            export SOPS_AGE_KEY_FILE=/tmp/age-key.txt
-            sops -d secrets.encrypted.yaml > secrets.yaml || {
-              echo "⚠️ Failed to decrypt secrets.encrypted.yaml"
-              echo "⚠️ Check SOPS_AGE_KEY secret and .sops.yaml configuration"
-              rm -f /tmp/age-key.txt
-              exit 1
-            }
-            rm -f /tmp/age-key.txt
-          else
-            echo "⚠️ SOPS_AGE_KEY secret not set or secrets.encrypted.yaml not found"
-            echo "⚠️ Creating empty secrets.yaml - sync may fail without proper credentials"
-            echo "BENTO_API_URL: http://localhost:4195" > secrets.yaml
-            echo "S2_BASIN: " >> secrets.yaml
-            echo "BASE_DOMAIN: " >> secrets.yaml
-            echo "S2_ACCESS_TOKEN: " >> secrets.yaml
-            echo "RESEND_API_KEY: " >> secrets.yaml
-          fi
-
-      - name: Parse TOOLS_ROOT_GITHUB
-        id: parse_tools_root
-        run: |
-          # Get TOOLS_ROOT_GITHUB from input or environment
-          TOOLS_ROOT_GITHUB="${{{ inputs.tools_root_github }}}"
-          if [ -z "$TOOLS_ROOT_GITHUB" ]; then
-            # Default to current repo
-            TOOLS_ROOT_GITHUB="https://github.com/${{ github.repository }}/${{ github.ref_name }}/bentotools"
-          fi
-          
-          echo "tools_root_github=$TOOLS_ROOT_GITHUB" >> $GITHUB_OUTPUT
-          echo "🔍 TOOLS_ROOT_GITHUB: $TOOLS_ROOT_GITHUB"
-          
-          # Parse to extract components
-          if [[ "$TOOLS_ROOT_GITHUB" =~ ^https://github\.com/([^/]+)/([^/]+)(/([^/]+))?(/(.*))?$ ]]; then
-            OWNER="${BASH_REMATCH[1]}"
-            REPO="${BASH_REMATCH[2]}"
-            BRANCH="${BASH_REMATCH[4]}"
-            PATH_PART="${BASH_REMATCH[6]}"
-            
-            echo "owner=$OWNER" >> $GITHUB_OUTPUT
-            echo "repo=$REPO" >> $GITHUB_OUTPUT
-            echo "branch=${BRANCH:-}" >> $GITHUB_OUTPUT
-            echo "path=${PATH_PART:-}" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Invalid TOOLS_ROOT_GITHUB format"
+          echo "🔐 Decrypting secrets..."
+          if [ -z "$SOPS_AGE_KEY" ] || [ ! -f secrets.encrypted.yaml ]; then
+            echo "⚠️ SOPS_AGE_KEY not set or secrets.encrypted.yaml missing"
             exit 1
           fi
+          echo "$SOPS_AGE_KEY" > /tmp/age-key.txt
+          export SOPS_AGE_KEY_FILE=/tmp/age-key.txt
+          sops -d secrets.encrypted.yaml > secrets.yaml
+          rm -f /tmp/age-key.txt
 
-      - name: Get default branch if not specified
-        id: default_branch
-        if: steps.parse_tools_root.outputs.branch == ''
-        run: |
-          OWNER="${{ steps.parse_tools_root.outputs.owner }}"
-          REPO="${{ steps.parse_tools_root.outputs.repo }}"
-          
-          DEFAULT_BRANCH=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}" | jq -r '.default_branch // "main"')
-          echo "branch=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
-          echo "📡 Default branch: $DEFAULT_BRANCH"
-
-      - name: Load decrypted secrets
+      - name: Load secrets
         id: secrets
         run: |
-          # Load secrets from decrypted file using yq or simple parsing
-          if [ -f secrets.yaml ]; then
-            # Use yq if available, otherwise use simple grep/sed
-            if command -v yq &> /dev/null; then
-              BENTO_API_URL=$(yq eval '.BENTO_API_URL // "http://localhost:4195"' secrets.yaml)
-              S2_BASIN=$(yq eval '.S2_BASIN // ""' secrets.yaml)
-              BASE_DOMAIN=$(yq eval '.BASE_DOMAIN // ""' secrets.yaml)
-              S2_ACCESS_TOKEN=$(yq eval '.S2_ACCESS_TOKEN // ""' secrets.yaml)
-              RESEND_API_KEY=$(yq eval '.RESEND_API_KEY // ""' secrets.yaml)
-              SERVER_IP=$(yq eval '.SERVER_IP // ""' secrets.yaml)
-              SSH_PRIVATE_KEY=$(yq eval '.SSH_PRIVATE_KEY // ""' secrets.yaml)
-            else
-              # Simple parsing (handles YAML key: value format)
-              BENTO_API_URL=$(grep -E "^BENTO_API_URL:" secrets.yaml | sed 's/^BENTO_API_URL:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "http://localhost:4195")
-              S2_BASIN=$(grep -E "^S2_BASIN:" secrets.yaml | sed 's/^S2_BASIN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-              BASE_DOMAIN=$(grep -E "^BASE_DOMAIN:" secrets.yaml | sed 's/^BASE_DOMAIN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-              S2_ACCESS_TOKEN=$(grep -E "^S2_ACCESS_TOKEN:" secrets.yaml | sed 's/^S2_ACCESS_TOKEN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-              RESEND_API_KEY=$(grep -E "^RESEND_API_KEY:" secrets.yaml | sed 's/^RESEND_API_KEY:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-              SERVER_IP=$(grep -E "^SERVER_IP:" secrets.yaml | sed 's/^SERVER_IP:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-              SSH_PRIVATE_KEY=$(grep -E "^SSH_PRIVATE_KEY:" secrets.yaml | sed 's/^SSH_PRIVATE_KEY:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-            fi
-            
-            echo "bento_api_url=${BENTO_API_URL}" >> $GITHUB_OUTPUT
-            echo "s2_basin=${S2_BASIN}" >> $GITHUB_OUTPUT
-            echo "base_domain=${BASE_DOMAIN}" >> $GITHUB_OUTPUT
-            echo "s2_access_token=${S2_ACCESS_TOKEN}" >> $GITHUB_OUTPUT
-            echo "resend_api_key=${RESEND_API_KEY}" >> $GITHUB_OUTPUT
-            echo "server_ip=${SERVER_IP}" >> $GITHUB_OUTPUT
-            echo "ssh_private_key=${SSH_PRIVATE_KEY}" >> $GITHUB_OUTPUT
-          else
-            echo "bento_api_url=http://localhost:4195" >> $GITHUB_OUTPUT
-            echo "s2_basin=" >> $GITHUB_OUTPUT
-            echo "base_domain=" >> $GITHUB_OUTPUT
-            echo "s2_access_token=" >> $GITHUB_OUTPUT
-            echo "resend_api_key=" >> $GITHUB_OUTPUT
-            echo "server_ip=" >> $GITHUB_OUTPUT
-            echo "ssh_private_key=" >> $GITHUB_OUTPUT
-          fi
+          echo "📋 Loading secrets..."
+          BENTO_API_URL=$(grep -E "^BENTO_API_URL:" secrets.yaml | sed 's/^BENTO_API_URL:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "http://localhost:4195")
+          S2_BASIN=$(grep -E "^S2_BASIN:" secrets.yaml | sed 's/^S2_BASIN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+          BASE_DOMAIN=$(grep -E "^BASE_DOMAIN:" secrets.yaml | sed 's/^BASE_DOMAIN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+          S2_ACCESS_TOKEN=$(grep -E "^S2_ACCESS_TOKEN:" secrets.yaml | sed 's/^S2_ACCESS_TOKEN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+          RESEND_API_KEY=$(grep -E "^RESEND_API_KEY:" secrets.yaml | sed 's/^RESEND_API_KEY:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+          SERVER_IP=$(grep -E "^SERVER_IP:" secrets.yaml | sed 's/^SERVER_IP:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+          SSH_PRIVATE_KEY=$(grep -E "^SSH_PRIVATE_KEY:" secrets.yaml | sed 's/^SSH_PRIVATE_KEY:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+          
+          echo "bento_api_url=${BENTO_API_URL}" >> $GITHUB_OUTPUT
+          echo "s2_basin=${S2_BASIN}" >> $GITHUB_OUTPUT
+          echo "base_domain=${BASE_DOMAIN}" >> $GITHUB_OUTPUT
+          echo "s2_access_token=${S2_ACCESS_TOKEN}" >> $GITHUB_OUTPUT
+          echo "resend_api_key=${RESEND_API_KEY}" >> $GITHUB_OUTPUT
+          echo "server_ip=${SERVER_IP}" >> $GITHUB_OUTPUT
+          echo "ssh_private_key=${SSH_PRIVATE_KEY}" >> $GITHUB_OUTPUT
 
-      - name: Pull bentotools on server
+      - name: Pull on server
         if: steps.secrets.outputs.server_ip != '' && steps.secrets.outputs.ssh_private_key != ''
         env:
           SERVER_IP: ${{ steps.secrets.outputs.server_ip }}
           SSH_PRIVATE_KEY: ${{ steps.secrets.outputs.ssh_private_key }}
-          BRANCH: ${{ steps.parse_tools_root.outputs.branch || steps.default_branch.outputs.branch }}
         run: |
-          echo "🔄 Pulling bentotools directory on server..."
-          
-          # Setup SSH
+          echo "🔄 Pulling bentotools on server..."
           mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$SERVER_IP" >> ~/.ssh/known_hosts 2>/dev/null || true
-          
-          # Pull latest changes on server
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$SERVER_IP" << 'EOF'
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$SERVER_IP" '
             if [ -d /opt/bento-sync/.git ]; then
               cd /opt/bento-sync
-              git fetch origin
-              git checkout "${BRANCH}" 2>/dev/null || git checkout -b "${BRANCH}" "origin/${BRANCH}" 2>/dev/null || true
-              git pull origin "${BRANCH}" || echo "⚠️ Could not pull latest changes"
-              
-              # Reinstall dependencies if package.json changed
-              if [ -f package.json ]; then
-                bun install || echo "⚠️ Could not install dependencies"
-              fi
-            else
-              echo "⚠️ /opt/bento-sync/.git not found, skipping pull"
+              git fetch origin && git pull origin main || echo "⚠️ Pull failed"
+              bun install || echo "⚠️ Install failed"
             fi
-          EOF
-          
-          # Cleanup
+          '
           rm -f ~/.ssh/deploy_key
 
-      - name: Compile and sync Bento streams
+      - name: Sync streams
         env:
           BENTO_API_URL: ${{ steps.secrets.outputs.bento_api_url }}
-          TOOLS_ROOT_GITHUB: ${{ steps.parse_tools_root.outputs.tools_root_github }}
+          TOOLS_ROOT_GITHUB: https://github.com/${{ github.repository }}/${{ github.ref_name }}/bentotools
           S2_BASIN: ${{ steps.secrets.outputs.s2_basin }}
           BASE_DOMAIN: ${{ steps.secrets.outputs.base_domain }}
           S2_ACCESS_TOKEN: ${{ steps.secrets.outputs.s2_access_token }}
           RESEND_API_KEY: ${{ steps.secrets.outputs.resend_api_key }}
         run: |
-          echo "🔄 Syncing Bento streams from ${TOOLS_ROOT_GITHUB}..."
-          
-          # Use the TypeScript sync script
-          chmod +x bentotools/sync.ts
-          bun bentotools/sync.ts || {
-            echo "⚠️ Sync script failed, but continuing..."
-            exit 0
-          }
-
-      - name: Output summary
-        if: always()
-        run: |
-          echo "## 📊 Sync Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **TOOLS_ROOT_GITHUB**: ${{ steps.parse_tools_root.outputs.tools_root_github }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Repository**: ${{ steps.parse_tools_root.outputs.owner }}/${{ steps.parse_tools_root.outputs.repo }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch**: ${{ steps.parse_tools_root.outputs.branch || steps.default_branch.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Path**: ${{ steps.parse_tools_root.outputs.path || '/' }}" >> $GITHUB_STEP_SUMMARY
+          echo "🔄 Syncing Bento streams..."
+          bun bentotools/sync.ts
