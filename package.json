@@ -1,0 +1,11 @@
+{
+  "name": "divizend-setup",
+  "version": "1.0.0",
+  "description": "Setup scripts for Divizend stream processor",
+  "private": true,
+  "scripts": {
+    "secrets:edit": "bash scripts/edit-secrets.sh",
+    "secrets:dump": "bash scripts/dump-secrets.sh"
+  },
+  "devDependencies": {}
+}

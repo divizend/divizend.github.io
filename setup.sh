@@ -47,7 +47,76 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 2. Interactive Configuration
+# 2. Setup SOPS and Age Keypair (if on server)
+echo -e "${BLUE}Setting up encrypted secrets...${NC}"
+
+# Check for or create server age keypair
+SERVER_AGE_KEY_FILE="/root/.age-key-server"
+if [[ ! -f "$SERVER_AGE_KEY_FILE" ]]; then
+    echo -e "${BLUE}🔑 Generating server age keypair...${NC}"
+    if ! command -v age-keygen &> /dev/null; then
+        echo -e "${BLUE}Installing age...${NC}"
+        # Install age (simple binary download)
+        if [[ "$(uname -m)" == "x86_64" ]]; then
+            curl -LO https://github.com/FiloSottile/age/releases/latest/download/age-v1.1.1-linux-amd64.tar.gz
+            tar -xzf age-v1.1.1-linux-amd64.tar.gz
+            mv age/age /usr/local/bin/age
+            mv age/age-keygen /usr/local/bin/age-keygen
+            rm -rf age age-v1.1.1-linux-amd64.tar.gz
+        else
+            echo -e "${YELLOW}⚠ Unsupported architecture, please install age manually${NC}"
+        fi
+    fi
+    age-keygen -o "$SERVER_AGE_KEY_FILE"
+    echo -e "${GREEN}✓ Server age keypair created${NC}"
+else
+    echo -e "${GREEN}✓ Using existing server age keypair${NC}"
+fi
+
+# Extract server public key
+SERVER_PUBLIC_KEY=$(grep "^public key:" "$SERVER_AGE_KEY_FILE" | cut -d' ' -f4)
+if [[ -z "$SERVER_PUBLIC_KEY" ]]; then
+    echo -e "${RED}Error: Could not extract public key from server keypair${NC}" >&2
+    exit 1
+fi
+
+# Set SOPS_AGE_KEY for server operations
+export SOPS_AGE_KEY=$(cat "$SERVER_AGE_KEY_FILE")
+
+# Update .sops.yaml with server public key if copied from deploy.sh
+if [[ -f "/tmp/.sops.yaml" ]]; then
+    cp /tmp/.sops.yaml "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null || true
+    # Add server public key to .sops.yaml if not present
+    if ! grep -q "$SERVER_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
+        echo -e "${BLUE}📝 Adding server public key to .sops.yaml...${NC}"
+        # Use helper script to add key
+        if [[ -f "/tmp/scripts/update-sops-recipients.sh" ]]; then
+            bash /tmp/scripts/update-sops-recipients.sh "${SCRIPT_DIR}" "$SERVER_PUBLIC_KEY"
+        else
+            # Fallback: simple sed approach
+            sed -i "s|age: >-|age: >-\\n      ${SERVER_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"
+        fi
+    fi
+    # Re-encrypt secrets.encrypted.yaml with updated recipients (including server key)
+    if [[ -f "/tmp/secrets.encrypted.yaml" ]]; then
+        cp /tmp/secrets.encrypted.yaml "${SCRIPT_DIR}/secrets.encrypted.yaml" 2>/dev/null || true
+        echo -e "${BLUE}🔐 Re-encrypting secrets with all recipients (including server key)...${NC}"
+        # Decrypt with any available key, then re-encrypt with all recipients
+        TEMP_SECRETS=$(mktemp)
+        if sops -d "${SCRIPT_DIR}/secrets.encrypted.yaml" > "$TEMP_SECRETS" 2>/dev/null; then
+            sops -e "$TEMP_SECRETS" > "${SCRIPT_DIR}/secrets.encrypted.yaml"
+            rm -f "$TEMP_SECRETS"
+            echo -e "${GREEN}✓ Secrets re-encrypted with all recipients${NC}"
+        else
+            echo -e "${YELLOW}⚠ Could not decrypt existing secrets, will create new ones during setup${NC}"
+        fi
+    fi
+fi
+
+# Load secrets from encrypted file (if available)
+load_secrets_from_sops
+
+# 3. Interactive Configuration
 echo -e "${YELLOW}--- Configuration ---${NC}"
 
 # Domain
@@ -72,14 +141,13 @@ get_config_value TOOLS_ROOT_GITHUB "Enter Tools Root GitHub URL (e.g., https://g
 # GitHub Actions Secrets Setup Instructions
 echo -e "\n${YELLOW}--- GitHub Actions Secrets Setup (Optional) ---${NC}"
 echo -e "${BLUE}To enable GitHub Actions to sync Bento streams automatically:${NC}"
-echo -e "1. Install SOPS: ${GREEN}brew install sops${NC} (macOS) or ${GREEN}curl -LO https://github.com/getsops/sops/releases/latest/download/sops-v3.8.1.linux && sudo mv sops-v3.8.1.linux /usr/local/bin/sops${NC} (Linux)"
-echo -e "2. Generate age keypair: ${GREEN}age-keygen -o age-key.txt${NC}"
-echo -e "3. Update ${BLUE}.sops.yaml${NC} with your age public key (starts with age1...)"
-echo -e "4. Create ${BLUE}secrets.yaml${NC} from ${BLUE}secrets.example.yaml${NC} and fill in your values"
-echo -e "5. Encrypt secrets: ${GREEN}sops -e secrets.yaml > secrets.encrypted.yaml${NC}"
-echo -e "6. Add GitHub secret ${BLUE}SOPS_AGE_KEY${NC} with the contents of ${BLUE}age-key.txt${NC} (the private key)"
-echo -e "7. Commit ${BLUE}secrets.encrypted.yaml${NC} and ${BLUE}.sops.yaml${NC} to the repo"
-echo -e "8. ${RED}Never commit age-key.txt or secrets.yaml (unencrypted)${NC}"
+echo -e "1. Generate a separate age keypair for GitHub Actions: ${GREEN}age-keygen -o .age-key-github${NC}"
+echo -e "2. Add the GitHub Actions public key to ${BLUE}.sops.yaml${NC} (run: ${GREEN}./deploy.sh${NC} will handle this)"
+echo -e "3. Add GitHub secret ${BLUE}SOPS_AGE_KEY${NC} with the contents of ${BLUE}.age-key-github${NC} (the private key)"
+echo -e "4. Commit ${BLUE}secrets.encrypted.yaml${NC} and ${BLUE}.sops.yaml${NC} to the repo"
+echo -e "5. ${RED}Never commit .age-key-* files (they contain private keys)${NC}"
+echo -e "\n${BLUE}Note: All secrets are stored in ${GREEN}secrets.encrypted.yaml${NC} (no .env file needed).${NC}"
+echo -e "${BLUE}Use ${GREEN}npm run secrets:edit${NC} to edit secrets or ${GREEN}npm run secrets:dump${NC} to view them.${NC}"
 echo -e "${YELLOW}Press Enter to continue...${NC}"
 read -r < /dev/tty || true
 

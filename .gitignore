@@ -1,11 +1,16 @@
 # Secrets (never commit unencrypted)
 secrets.yaml
+.age-key-*
 age-key.txt
 *.key
 *.pem
 
 # SOPS
 .sops.yaml.local
+
+# Environment files (no longer used, but keep in gitignore for safety)
+.env
+.env.local
 
 # OS
 .DS_Store

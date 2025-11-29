@@ -1,11 +1,15 @@
 # SOPS configuration for encrypting secrets
-# This file tells sops how to encrypt/decrypt secrets.encrypted.yaml
+# This file supports multiple recipients (local, server, GitHub Actions)
+# Each recipient can decrypt the secrets using their private key
 
 creation_rules:
   - path_regex: secrets\.encrypted\.yaml$
     age: >-
-      age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-    # Replace the above with your actual age public key
-    # Generate with: age-keygen -o age-key.txt
-    # Then use the public key (starts with age1) here
-
+      age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,
+      age1yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy,
+      age1zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+    # Multiple age public keys (comma-separated):
+    # 1. Local machine public key (for editing secrets locally)
+    # 2. Server public key (for decrypting during setup.sh)
+    # 3. GitHub Actions public key (for CI/CD)
+    # Keys will be automatically added/updated by deploy.sh and setup.sh

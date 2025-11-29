@@ -1,90 +1,188 @@
-# GitHub Actions Secrets Setup
+# Encrypted Secrets Management
 
-This repository uses [SOPS](https://github.com/getsops/sops) with [age](https://github.com/FiloSottile/age) encryption to store secrets securely in the repository.
+This repository uses [SOPS](https://github.com/getsops/sops) with [age](https://github.com/FiloSottile/age) encryption to store secrets securely. **No `.env` file is needed** - all secrets are stored in `secrets.encrypted.yaml` and can be decrypted by multiple recipients (local machine, server, and GitHub Actions).
+
+## Architecture
+
+The secrets are encrypted with **multiple recipients**, allowing:
+- **Local machine**: Edit secrets using `npm run secrets:edit`
+- **Server**: Decrypt secrets during `setup.sh` execution
+- **GitHub Actions**: Decrypt secrets for CI/CD workflows
+
+Each recipient has their own age keypair, and the public keys are stored in `.sops.yaml`.
 
 ## Initial Setup
 
-1. **Install SOPS:**
+### 1. Local Machine Setup
+
+The `deploy.sh` script automatically:
+- Checks for or creates a local age keypair at `.age-key-local`
+- Adds the local public key to `.sops.yaml`
+- Loads secrets from `secrets.encrypted.yaml`
+
+**First time setup:**
+```bash
+./deploy.sh  # This will generate .age-key-local automatically
+```
+
+### 2. Server Setup
+
+The `setup.sh` script automatically:
+- Checks for or creates a server age keypair at `/root/.age-key-server`
+- Adds the server public key to `.sops.yaml`
+- Re-encrypts `secrets.encrypted.yaml` with all recipients
+
+**No manual steps needed** - this happens automatically when you run `./deploy.sh`.
+
+### 3. GitHub Actions Setup
+
+1. **Generate a separate age keypair for GitHub Actions:**
    ```bash
-   # macOS
-   brew install sops
-   
-   # Linux
-   curl -LO https://github.com/getsops/sops/releases/latest/download/sops-v3.8.1.linux
-   chmod +x sops-v3.8.1.linux
-   sudo mv sops-v3.8.1.linux /usr/local/bin/sops
+   age-keygen -o .age-key-github
    ```
 
-2. **Generate age keypair:**
+2. **Add the GitHub Actions public key to `.sops.yaml`:**
    ```bash
-   age-keygen -o age-key.txt
+   # Extract public key
+   PUBLIC_KEY=$(grep "^public key:" .age-key-github | cut -d' ' -f4)
+   
+   # Add to .sops.yaml (or use the helper script)
+   ./scripts/update-sops-recipients.sh . "$PUBLIC_KEY"
    ```
-   This creates two files:
-   - `age-key.txt` - Contains both public and private key (KEEP SECRET!)
-   - The public key starts with `age1...`
 
-3. **Update `.sops.yaml`:**
-   - Open `.sops.yaml`
-   - Replace the placeholder `age1xxxxxxxxx...` with your actual public key from `age-key.txt`
-
-4. **Create and encrypt secrets:**
+3. **Re-encrypt secrets with the new recipient:**
    ```bash
-   # Copy the example file
-   cp secrets.example.yaml secrets.yaml
+   # Decrypt with local key
+   export SOPS_AGE_KEY=$(cat .age-key-local)
+   sops -d secrets.encrypted.yaml > secrets.yaml
    
-   # Edit secrets.yaml with your actual values
-   nano secrets.yaml  # or use your preferred editor
-   
-   # Encrypt the secrets
+   # Re-encrypt (now includes GitHub Actions key)
    sops -e secrets.yaml > secrets.encrypted.yaml
+   rm secrets.yaml
    ```
 
-5. **Add GitHub Secret:**
+4. **Add GitHub Secret:**
    - Go to your GitHub repository
    - Navigate to Settings → Secrets and variables → Actions
    - Click "New repository secret"
    - Name: `SOPS_AGE_KEY`
-   - Value: The entire contents of `age-key.txt` (the private key)
+   - Value: The entire contents of `.age-key-github` (the private key)
    - Click "Add secret"
 
-6. **Commit encrypted file:**
+5. **Commit changes:**
    ```bash
    git add secrets.encrypted.yaml .sops.yaml
-   git commit -m "Add encrypted secrets for GitHub Actions"
+   git commit -m "Add GitHub Actions recipient for secrets"
    git push
    ```
 
-7. **Clean up:**
-   ```bash
-   # Remove unencrypted files (they're in .gitignore)
-   rm secrets.yaml age-key.txt
-   ```
+## Managing Secrets
 
-## Editing Secrets
+### Edit Secrets
 
-To edit encrypted secrets:
+Edit secrets as if they were a `.env` file:
 
 ```bash
-# Decrypt, edit, and re-encrypt
+npm run secrets:edit
+```
+
+This will:
+1. Decrypt `secrets.encrypted.yaml`
+2. Convert to a simple KEY=value format
+3. Open in your default editor (`$EDITOR` or `nano`)
+4. Convert back to YAML and re-encrypt
+
+### View Secrets
+
+Dump all decrypted secrets to stdout:
+
+```bash
+npm run secrets:dump
+```
+
+### Manual Editing
+
+You can also use SOPS directly:
+
+```bash
+# Set your local key
+export SOPS_AGE_KEY=$(cat .age-key-local)
+
+# Edit with SOPS (opens in your editor)
 sops secrets.encrypted.yaml
 
-# Or manually:
+# Or decrypt, edit, and re-encrypt manually
 sops -d secrets.encrypted.yaml > secrets.yaml
-# Edit secrets.yaml
+nano secrets.yaml  # Edit as needed
 sops -e secrets.yaml > secrets.encrypted.yaml
 rm secrets.yaml
 ```
 
+## How It Works
+
+### Key Management
+
+- **Local key** (`.age-key-local`): Generated automatically by `deploy.sh`, used for local editing
+- **Server key** (`/root/.age-key-server`): Generated automatically by `setup.sh`, used for server decryption
+- **GitHub Actions key** (`.age-key-github`): Generated manually, stored as GitHub secret `SOPS_AGE_KEY`
+
+### Secret Loading Priority
+
+When `get_config_value` is called, it checks in this order:
+1. Environment variable (highest priority)
+2. Encrypted secrets (`secrets.encrypted.yaml`)
+3. User prompt (if interactive)
+4. Default value (if provided)
+
+### Automatic Saving
+
+When you enter a new value during setup (via `get_config_value`), it's automatically:
+- Saved to `secrets.encrypted.yaml` using SOPS
+- Available for all recipients (local, server, GitHub Actions)
+
 ## Security Notes
 
 - ✅ **DO commit:** `secrets.encrypted.yaml` and `.sops.yaml`
-- ❌ **NEVER commit:** `secrets.yaml`, `age-key.txt`, or any unencrypted secrets
-- 🔒 Keep your `age-key.txt` file secure and backed up safely
-- 🔄 Rotate keys periodically by generating a new keypair and re-encrypting
+- ❌ **NEVER commit:** `.age-key-*` files, `secrets.yaml` (unencrypted), or `.env`
+- 🔒 Keep your `.age-key-*` files secure and backed up safely
+- 🔄 Rotate keys periodically by generating new keypairs and re-encrypting
 
 ## Troubleshooting
 
-If GitHub Actions fails to decrypt:
+### "Error: SOPS is not installed"
+Install SOPS:
+```bash
+# macOS
+brew install sops
+
+# Linux
+curl -LO https://github.com/getsops/sops/releases/latest/download/sops-v3.8.1.linux
+chmod +x sops-v3.8.1.linux
+sudo mv sops-v3.8.1.linux /usr/local/bin/sops
+```
+
+### "Error: age-keygen is not installed"
+Install age:
+```bash
+# macOS
+brew install age
+
+# Linux
+curl -LO https://github.com/FiloSottile/age/releases/latest/download/age-v1.1.1-linux-amd64.tar.gz
+tar -xzf age-v1.1.1-linux-amd64.tar.gz
+sudo mv age/age /usr/local/bin/age
+sudo mv age/age-keygen /usr/local/bin/age-keygen
+```
+
+### "Error: Local age key not found"
+Run `./deploy.sh` first - it will generate the local keypair automatically.
+
+### "Failed to decrypt secrets"
+- Verify you have the correct key: `export SOPS_AGE_KEY=$(cat .age-key-local)`
+- Check that `.sops.yaml` contains your public key
+- Ensure `secrets.encrypted.yaml` was encrypted with your key
+
+### GitHub Actions fails to decrypt
 - Verify `SOPS_AGE_KEY` secret is set correctly in GitHub
-- Ensure the public key in `.sops.yaml` matches the keypair
-- Check that `secrets.encrypted.yaml` was encrypted with the correct key
+- Ensure the GitHub Actions public key is in `.sops.yaml`
+- Check that `secrets.encrypted.yaml` was re-encrypted with all recipients
