@@ -319,25 +319,25 @@ input:
 pipeline:
   processors:
     - bloblang: |
-            # Extract relevant fields from Resend Payload
-            let original_text = this.data.text | ""
-            let sender = this.data.from
-            let subject = this.data.subject
+        # Extract relevant fields from Resend Payload
+        let original_text = this.data.text | ""
+        let sender = this.data.from
+        let subject = this.data.subject
 
         # Automatically determine receiver (original sender) and sender (reverser@domain)
         let receiver = \$sender
         let sender_domain = "${BASE_DOMAIN}"
         let sender_email = "reverser@" + \$sender_domain
 
-            # Business Logic: Reverse the text
-            # Splitting by empty string creates array of chars, reverse array, join back
-            let reversed_text = \$original_text.split("").reverse().join("")
+        # Business Logic: Reverse the text
+        # Splitting by empty string creates array of chars, reverse array, join back
+        let reversed_text = \$original_text.split("").reverse().join("")
 
         # Construct Resend API Payload with automatically determined emails
         root.from = "Reverser <" + \$sender_email + ">"
         root.to = [\$receiver]
-            root.subject = "Re: " + \$subject
-            root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
+        root.subject = "Re: " + \$subject
+        root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
 
 output:
   resource: s2_outbox_writer
