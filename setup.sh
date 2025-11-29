@@ -471,23 +471,16 @@ input:
 pipeline:
   processors:
     # Ensure payload is in the correct format for Resend API
-    # Data from S2 should already be parsed JSON, but handle both cases
+    # Data from S2 should already be parsed JSON (Bento's s2 input parses JSON automatically)
     - bloblang: |
-        # If the payload is a string, try to parse it as JSON
-        # Otherwise use it as-is (already parsed)
-        let parsed = if this.type() == "string" {
-          this.parse_json() catch this
-        } else {
-          this
-        }
-        
         # Ensure all required fields are present for Resend API
         # Resend expects: from, to (array), subject, html (or text)
+        # The data from S2 should already be a parsed JSON object
         root = {
-          "from": $parsed.from | "",
-          "to": $parsed.to | [],
-          "subject": $parsed.subject | "",
-          "html": $parsed.html | ""
+          "from": this.from | "",
+          "to": this.to | [],
+          "subject": this.subject | "",
+          "html": this.html | ""
         }
 
 output:
