@@ -10,6 +10,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "bentotools": "^1.1.0"
+    "bentotools": "^1.1.0",
+    "@s2-dev/streamstore": "^1.0.0"
   }
 }

@@ -10,7 +10,7 @@ export const $TESTS = [
   {
     stream: "reverser",
     input: "Hello",
-    expected: "Olleh",
+    expected: "olleH",
   },
 ];
 
