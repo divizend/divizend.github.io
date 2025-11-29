@@ -310,7 +310,7 @@ pipeline:
     
     # Only process if signature was valid (not deleted)
     - filter:
-        check: 'this != deleted()'
+        bloblang: 'this != deleted()'
 
 output:
   resource: s2_inbox_writer
