@@ -31,13 +31,11 @@ STREAM_DOMAIN="streams.${BASE_DOMAIN}"
 echo -e "Service will be deployed at: ${GREEN}https://${STREAM_DOMAIN}${NC}"
 
 # S2 Configuration
-read -s -p "Enter S2 Access Token: " S2_TOKEN < /dev/tty || read -s -p "Enter S2 Access Token: " S2_TOKEN
-echo ""
+read -p "Enter S2 Access Token: " S2_TOKEN < /dev/tty
 if [[ -z "$S2_TOKEN" ]]; then echo -e "${RED}S2 Token is required.${NC}"; exit 1; fi
 
 # Resend API Key
-read -s -p "Enter Resend API Key (starts with re_): " RESEND_KEY < /dev/tty || read -s -p "Enter Resend API Key (starts with re_): " RESEND_KEY
-echo ""
+read -p "Enter Resend API Key (starts with re_): " RESEND_KEY < /dev/tty
 if [[ -z "$RESEND_KEY" ]]; then echo -e "${RED}Resend API Key is required.${NC}"; exit 1; fi
 
 # Webhook Setup Step
@@ -51,8 +49,7 @@ echo -e "4. Select events: ${GREEN}email.received${NC}"
 echo -e "5. Create the webhook and copy the ${BLUE}Signing Secret${NC} (starts with whsec_)."
 echo -e "-----------------------"
 
-read -s -p "Paste the Resend Webhook Secret here: " RESEND_WEBHOOK_SECRET < /dev/tty || read -s -p "Paste the Resend Webhook Secret here: " RESEND_WEBHOOK_SECRET
-echo ""
+read -p "Paste the Resend Webhook Secret here: " RESEND_WEBHOOK_SECRET < /dev/tty
 if [[ -z "$RESEND_WEBHOOK_SECRET" ]]; then echo -e "${RED}Webhook Secret is required.${NC}"; exit 1; fi
 
 # 3. System Dependencies
