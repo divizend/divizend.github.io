@@ -877,19 +877,20 @@ else
         echo -e "${GREEN}Using TEST_SENDER from environment: ${TEST_SENDER}${NC}"
     fi
     
-    # Test a tool if TEST_TOOL_NAME is set, otherwise skip
-    if [ -n "$TEST_SENDER" ] && [ -n "$TEST_TOOL_NAME" ]; then
-        if test_tool "$TEST_TOOL_NAME" "${TEST_INPUT_TEXT:-Hello}" "${TEST_EXPECTED_OUTPUT:-olleH}"; then
+    # Get test tool configuration if TEST_SENDER is available
+    if [ -n "$TEST_SENDER" ]; then
+        # Prompt for test tool configuration using get_config_value
+        get_config_value TEST_TOOL_NAME "Enter tool name to test (e.g., reverser)" "Tool name is required for testing"
+        get_config_value TEST_INPUT_TEXT "Enter test input text" "Test input text is required"
+        get_config_value TEST_EXPECTED_OUTPUT "Enter expected output text" "Expected output is required"
+        
+        # Run the test
+        if test_tool "$TEST_TOOL_NAME" "$TEST_INPUT_TEXT" "$TEST_EXPECTED_OUTPUT"; then
             SETUP_SUCCESS=true
         else
             SETUP_SUCCESS=false
         fi
     else
-        if [ -z "$TEST_TOOL_NAME" ]; then
-            echo -e "${YELLOW}TEST_TOOL_NAME not set, skipping tool test.${NC}"
-            echo -e "${BLUE}To test a tool, run:${NC}"
-            echo -e "${GREEN}TEST_TOOL_NAME=reverser TEST_INPUT_TEXT=\"Hello\" TEST_EXPECTED_OUTPUT=\"olleH\" ./deploy.sh${NC}"
-        fi
         SETUP_SUCCESS=true
     fi
 fi
