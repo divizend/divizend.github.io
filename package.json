@@ -4,9 +4,9 @@
   "description": "Setup scripts for Divizend stream processor",
   "private": true,
   "scripts": {
-    "secrets:get": "bash scripts/secrets-get.sh",
-    "secrets:set": "bash scripts/secrets-set.sh",
-    "secrets:delete": "bash scripts/secrets-delete.sh",
+    "secrets:get": "bash scripts/sops-wrapper.sh -d --extract",
+    "secrets:set": "bash scripts/sops-wrapper.sh set secrets.encrypted.yaml",
+    "secrets:delete": "bash scripts/sops-wrapper.sh unset secrets.encrypted.yaml",
     "secrets:list": "bash scripts/sops-wrapper.sh -d secrets.encrypted.yaml 2>/dev/null | grep -E '^[^#:]+:' | cut -d: -f1 | sort",
     "secrets:edit": "bash scripts/sops-wrapper.sh secrets.encrypted.yaml",
     "secrets:dump": "bash scripts/sops-wrapper.sh -d secrets.encrypted.yaml",
