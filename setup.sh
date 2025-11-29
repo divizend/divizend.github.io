@@ -450,7 +450,7 @@ data "http" "bento_tools" {
   url = "\${var.tools_root}/index.ts"
   
   request_headers = {
-    Accept = "application/typescript"
+    Accept = "text/plain"
   }
 }
 
@@ -458,7 +458,7 @@ data "http" "bento_types" {
   url = "\${var.tools_root}/types.ts"
   
   request_headers = {
-    Accept = "application/typescript"
+    Accept = "text/plain"
   }
 }
 
@@ -483,9 +483,10 @@ resource "null_resource" "bento_reload" {
   provisioner "local-exec" {
     command = <<-EOT
       # Try to trigger Bento reload via API
+      TOOLS_ROOT_VAL="\${var.tools_root}"
       curl -f -s -X POST "http://localhost:4195/admin/reload-tools" \\
         -H "Content-Type: application/json" \\
-        -d "{\\"tools_root\\": \\"\${var.tools_root}\\"}" \\
+        -d "{\\"tools_root\\": \\"\${TOOLS_ROOT_VAL}\\"}" \\
         || systemctl reload bento || true
     EOT
   }
