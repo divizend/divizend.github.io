@@ -185,21 +185,34 @@ async function editSecrets(): Promise<void> {
     writeFileSync(tempFile, envFormat, "utf-8");
     
     // Open in editor
-    const editor = process.env.EDITOR || "nano";
+    // Check multiple environment variables and common editors
+    const editor = process.env.EDITOR || 
+                  process.env.VISUAL || 
+                  (process.platform === "darwin" ? "nano" : "nano");
     console.log(`${BLUE}📝 Opening secrets in ${editor}...${NC}`);
     
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn(editor, [tempFile], {
+      // Use shell: false and explicitly call the editor
+      // Split editor command in case it has arguments (e.g., "code -w")
+      const editorParts = editor.split(/\s+/);
+      const editorCmd = editorParts[0];
+      const editorArgs = [...editorParts.slice(1), tempFile];
+      
+      const proc = spawn(editorCmd, editorArgs, {
         stdio: "inherit",
-        shell: true,
+        shell: false,
       });
       
       proc.on("exit", (code) => {
-        if (code === 0) {
+        if (code === 0 || code === null) {
           resolve();
         } else {
           reject(new Error(`Editor exited with code ${code}`));
         }
+      });
+      
+      proc.on("error", (error) => {
+        reject(new Error(`Failed to start editor: ${error.message}`));
       });
     });
     
