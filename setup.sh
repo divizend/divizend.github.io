@@ -60,19 +60,17 @@ fi
 
 # S2 Configuration
 if [[ -z "$S2_ACCESS_TOKEN" ]]; then
-    read -p "Enter S2 Access Token: " S2_TOKEN < /dev/tty
-    if [[ -z "$S2_TOKEN" ]]; then echo -e "${RED}S2 Token is required.${NC}"; exit 1; fi
+    read -p "Enter S2 Access Token: " S2_ACCESS_TOKEN < /dev/tty
+    if [[ -z "$S2_ACCESS_TOKEN" ]]; then echo -e "${RED}S2 Token is required.${NC}"; exit 1; fi
 else
-    S2_TOKEN="$S2_ACCESS_TOKEN"
     echo -e "${GREEN}Using S2_ACCESS_TOKEN from environment.${NC}"
 fi
 
 # Resend API Key
 if [[ -z "$RESEND_API_KEY" ]]; then
-    read -p "Enter Resend API Key (starts with re_): " RESEND_KEY < /dev/tty
-    if [[ -z "$RESEND_KEY" ]]; then echo -e "${RED}Resend API Key is required.${NC}"; exit 1; fi
+    read -p "Enter Resend API Key (starts with re_): " RESEND_API_KEY < /dev/tty
+    if [[ -z "$RESEND_API_KEY" ]]; then echo -e "${RED}Resend API Key is required.${NC}"; exit 1; fi
 else
-    RESEND_KEY="$RESEND_API_KEY"
     echo -e "${GREEN}Using RESEND_API_KEY from environment.${NC}"
 fi
 
@@ -195,8 +193,8 @@ input_resources:
       bucket: ${BASE_DOMAIN}
       prefix: inbox/reverser/
       credentials:
-        id: "${S2_TOKEN}"
-        secret: "${S2_TOKEN}"
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
       delete_objects: true # Queue-like behavior: delete after read
@@ -206,8 +204,8 @@ input_resources:
       bucket: ${BASE_DOMAIN}
       prefix: outbox/
       credentials:
-        id: "${S2_TOKEN}"
-        secret: "${S2_TOKEN}"
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
       delete_objects: true
@@ -218,8 +216,8 @@ output_resources:
       bucket: ${BASE_DOMAIN}
       path: 'inbox/reverser/\${!uuid_v4()}.json'
       credentials:
-        id: "${S2_TOKEN}"
-        secret: "${S2_TOKEN}"
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
 
@@ -228,8 +226,8 @@ output_resources:
       bucket: ${BASE_DOMAIN}
       path: 'outbox/\${!uuid_v4()}.json'
       credentials:
-        id: "${S2_TOKEN}"
-        secret: "${S2_TOKEN}"
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
 
@@ -296,7 +294,7 @@ stream_conf:
         url: https://api.resend.com/emails
         verb: POST
         headers:
-          Authorization: "Bearer ${RESEND_KEY}"
+          Authorization: "Bearer ${RESEND_API_KEY}"
           Content-Type: "application/json"
         retries: 3
         # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
