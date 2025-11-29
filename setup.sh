@@ -55,11 +55,12 @@ get_config_value S2_ACCESS_TOKEN "Enter S2 Access Token" "S2 Token is required."
 # Resend API Key
 get_config_value RESEND_API_KEY "Enter Resend API Key (starts with re_)" "Resend API Key is required."
 
-# Tools Root Configuration
-get_config_value TOOLS_ROOT "Enter Tools Root URL (default: https://setup.divizend.com/bentotools)" "Tools Root URL is required."
+# Tools Root Configuration (with default)
 if [[ -z "$TOOLS_ROOT" ]]; then
     TOOLS_ROOT="https://setup.divizend.com/bentotools"
     echo -e "${GREEN}Using default TOOLS_ROOT: ${TOOLS_ROOT}${NC}"
+else
+    echo -e "${GREEN}Using TOOLS_ROOT from environment: ${TOOLS_ROOT}${NC}"
 fi
 
 # Webhook Setup Step
