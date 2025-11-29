@@ -37,18 +37,25 @@ jobs:
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
         run: |
-          echo "$SOPS_AGE_KEY" > /tmp/age-key.txt
-          export SOPS_AGE_KEY_FILE=/tmp/age-key.txt
-          sops -d secrets.encrypted.yaml > secrets.yaml || {
-            echo "⚠️ Failed to decrypt secrets.encrypted.yaml"
-            echo "⚠️ Using default/empty values. Check SOPS_AGE_KEY secret."
-            echo "BENTO_API_URL: ${BENTO_API_URL:-http://localhost:4195}" > secrets.yaml
-            echo "S2_BASIN: ${S2_BASIN:-}" >> secrets.yaml
-            echo "BASE_DOMAIN: ${BASE_DOMAIN:-}" >> secrets.yaml
-            echo "S2_ACCESS_TOKEN: ${S2_ACCESS_TOKEN:-}" >> secrets.yaml
-            echo "RESEND_API_KEY: ${RESEND_API_KEY:-}" >> secrets.yaml
-          }
-          rm -f /tmp/age-key.txt
+          if [ -n "$SOPS_AGE_KEY" ] && [ -f secrets.encrypted.yaml ]; then
+            echo "$SOPS_AGE_KEY" > /tmp/age-key.txt
+            export SOPS_AGE_KEY_FILE=/tmp/age-key.txt
+            sops -d secrets.encrypted.yaml > secrets.yaml || {
+              echo "⚠️ Failed to decrypt secrets.encrypted.yaml"
+              echo "⚠️ Check SOPS_AGE_KEY secret and .sops.yaml configuration"
+              rm -f /tmp/age-key.txt
+              exit 1
+            }
+            rm -f /tmp/age-key.txt
+          else
+            echo "⚠️ SOPS_AGE_KEY secret not set or secrets.encrypted.yaml not found"
+            echo "⚠️ Creating empty secrets.yaml - sync may fail without proper credentials"
+            echo "BENTO_API_URL: http://localhost:4195" > secrets.yaml
+            echo "S2_BASIN: " >> secrets.yaml
+            echo "BASE_DOMAIN: " >> secrets.yaml
+            echo "S2_ACCESS_TOKEN: " >> secrets.yaml
+            echo "RESEND_API_KEY: " >> secrets.yaml
+          fi
 
       - name: Parse TOOLS_ROOT_GITHUB
         id: parse_tools_root
@@ -93,13 +100,23 @@ jobs:
       - name: Load decrypted secrets
         id: secrets
         run: |
-          # Load secrets from decrypted file
+          # Load secrets from decrypted file using yq or simple parsing
           if [ -f secrets.yaml ]; then
-            BENTO_API_URL=$(grep "^BENTO_API_URL:" secrets.yaml | cut -d' ' -f2- | tr -d '"' || echo "http://localhost:4195")
-            S2_BASIN=$(grep "^S2_BASIN:" secrets.yaml | cut -d' ' -f2- | tr -d '"' || echo "")
-            BASE_DOMAIN=$(grep "^BASE_DOMAIN:" secrets.yaml | cut -d' ' -f2- | tr -d '"' || echo "")
-            S2_ACCESS_TOKEN=$(grep "^S2_ACCESS_TOKEN:" secrets.yaml | cut -d' ' -f2- | tr -d '"' || echo "")
-            RESEND_API_KEY=$(grep "^RESEND_API_KEY:" secrets.yaml | cut -d' ' -f2- | tr -d '"' || echo "")
+            # Use yq if available, otherwise use simple grep/sed
+            if command -v yq &> /dev/null; then
+              BENTO_API_URL=$(yq eval '.BENTO_API_URL // "http://localhost:4195"' secrets.yaml)
+              S2_BASIN=$(yq eval '.S2_BASIN // ""' secrets.yaml)
+              BASE_DOMAIN=$(yq eval '.BASE_DOMAIN // ""' secrets.yaml)
+              S2_ACCESS_TOKEN=$(yq eval '.S2_ACCESS_TOKEN // ""' secrets.yaml)
+              RESEND_API_KEY=$(yq eval '.RESEND_API_KEY // ""' secrets.yaml)
+            else
+              # Simple parsing (handles YAML key: value format)
+              BENTO_API_URL=$(grep -E "^BENTO_API_URL:" secrets.yaml | sed 's/^BENTO_API_URL:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "http://localhost:4195")
+              S2_BASIN=$(grep -E "^S2_BASIN:" secrets.yaml | sed 's/^S2_BASIN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+              BASE_DOMAIN=$(grep -E "^BASE_DOMAIN:" secrets.yaml | sed 's/^BASE_DOMAIN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+              S2_ACCESS_TOKEN=$(grep -E "^S2_ACCESS_TOKEN:" secrets.yaml | sed 's/^S2_ACCESS_TOKEN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+              RESEND_API_KEY=$(grep -E "^RESEND_API_KEY:" secrets.yaml | sed 's/^RESEND_API_KEY:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+            fi
             
             echo "bento_api_url=${BENTO_API_URL}" >> $GITHUB_OUTPUT
             echo "s2_basin=${S2_BASIN}" >> $GITHUB_OUTPUT
