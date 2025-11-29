@@ -124,11 +124,17 @@ if [[ -f "/tmp/.sops.yaml" ]]; then
     fi
     # Copy secrets.encrypted.yaml (already re-encrypted on local machine with server key)
     if [[ -f "/tmp/secrets.encrypted.yaml" ]]; then
-        cp /tmp/secrets.encrypted.yaml "${SCRIPT_DIR}/secrets.encrypted.yaml" 2>/dev/null || {
-            echo -e "${RED}Error: Could not copy secrets.encrypted.yaml${NC}" >&2
+        # Determine target directory
+        if [[ -d "/etc/bento" ]]; then
+            TARGET_DIR="/etc/bento"
+        else
+            TARGET_DIR="${SCRIPT_DIR}"
+        fi
+        cp /tmp/secrets.encrypted.yaml "${TARGET_DIR}/secrets.encrypted.yaml" 2>/dev/null || {
+            echo -e "${RED}Error: Could not copy secrets.encrypted.yaml to ${TARGET_DIR}${NC}" >&2
             exit 1
         }
-        echo -e "${GREEN}✓ Secrets file copied (already encrypted with server key)${NC}"
+        echo -e "${GREEN}✓ Secrets file copied to ${TARGET_DIR}/secrets.encrypted.yaml (already encrypted with server key)${NC}"
     fi
 fi
 

@@ -6,6 +6,14 @@ export const reverser = (email: Email): string => {
   return email.text!.split("").reverse().join("");
 };
 
+export const $TESTS = [
+  {
+    stream: "reverser",
+    input: "Hello",
+    expected: "Olleh",
+  },
+];
+
 // Bento stream definitions
 // These are exported as stream configurations that Bento will use directly
 

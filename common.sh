@@ -52,7 +52,7 @@ load_secrets_from_sops() {
     fi
     
     # Decrypt secrets
-    if sops -d "$secrets_file" > "$temp_secrets" 2>/dev/null; then
+    if sops -d "$secrets_file" > "$temp_secrets" 2>&1; then
         # Parse YAML and export as environment variables
         # Use simple YAML parsing (key: "value" format)
         while IFS= read -r line || [[ -n "$line" ]]; do
@@ -86,6 +86,16 @@ load_secrets_from_sops() {
             fi
         done < "$temp_secrets"
         
+        rm -f "$temp_secrets"
+    else
+        # If decryption failed, check if it's because the file isn't encrypted with SOPS
+        if grep -q "^sops:" "$secrets_file" 2>/dev/null; then
+            # File has SOPS metadata but decryption failed - this is an error
+            echo -e "${RED}Error: Could not decrypt secrets.encrypted.yaml${NC}" >&2
+            echo -e "${RED}This indicates a problem with the encryption keys.${NC}" >&2
+            return 1
+        fi
+        # File doesn't have SOPS metadata - silently skip (will be created during setup)
         rm -f "$temp_secrets"
     fi
     
