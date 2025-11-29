@@ -630,94 +630,29 @@ set -e  # Re-enable exit on error
 if [ "$DOMAINS_COUNT" = "0" ] || [ -z "$DOMAINS_COUNT" ] || [ "$DOMAINS_COUNT" = "null" ]; then
     echo -e "${YELLOW}No domains detected in Resend account, skipping test email.${NC}"
     echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
-elif [ "$DOMAINS_COUNT" = "1" ]; then
-    TEST_DOMAIN=$(echo "$DOMAINS_JSON" | jq -r '.data[0].name' 2>/dev/null)
-    if [ -n "$TEST_DOMAIN" ] && [ "$TEST_DOMAIN" != "null" ]; then
-        TEST_SENDER="agent1@${TEST_DOMAIN}"
-        TEST_RECEIVER="reverser@${BASE_DOMAIN}"
-        TEST_SUBJECT="Test: Hello World"
-        TEST_TEXT="Hello World"
-        
-        echo -e "${BLUE}Sending test email from ${TEST_SENDER} to ${TEST_RECEIVER}...${NC}"
-        
-        TEST_RESPONSE=$(curl -s --max-time 10 -X POST https://api.resend.com/emails \
-            -H "Authorization: Bearer ${RESEND_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "{
-                \"from\": \"${TEST_SENDER}\",
-                \"to\": [\"${TEST_RECEIVER}\"],
-                \"subject\": \"${TEST_SUBJECT}\",
-                \"text\": \"${TEST_TEXT}\"
-            }" 2>/dev/null)
-        
-        if echo "$TEST_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
-            EMAIL_ID=$(echo "$TEST_RESPONSE" | jq -r '.id')
-            echo -e "${GREEN}Test email sent successfully (ID: ${EMAIL_ID})${NC}"
-            echo -e "${BLUE}Waiting 10 seconds for email processing...${NC}"
-            sleep 10
-            echo -e "${GREEN}Expected: Email with reversed text 'dlroW olleH' should arrive at ${TEST_SENDER}${NC}"
-            echo -e "${YELLOW}Note: Check the inbox at ${TEST_SENDER} for the reversed response.${NC}"
-        else
-            ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.message' 2>/dev/null || echo "$TEST_RESPONSE")
-            echo -e "${YELLOW}Test email failed: ${ERROR_MSG}${NC}"
-            echo -e "\nSend a test email manually to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
-        fi
-    else
-        echo -e "${YELLOW}Could not extract domain name, skipping test email.${NC}"
-        echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
-    fi
 else
-    # Multiple domains detected - prompt user to select one
-    echo -e "${BLUE}Multiple domains detected (${DOMAINS_COUNT}):${NC}"
-    DOMAIN_INDEX=0
-    declare -a DOMAIN_ARRAY
-    while IFS= read -r domain_name; do
-        if [ -n "$domain_name" ] && [ "$domain_name" != "null" ]; then
-            DOMAIN_INDEX=$((DOMAIN_INDEX + 1))
-            DOMAIN_ARRAY[$DOMAIN_INDEX]="$domain_name"
-            echo -e "  ${DOMAIN_INDEX}. ${domain_name}"
-        fi
-    done < <(echo "$DOMAINS_JSON" | jq -r '.data[]?.name' 2>/dev/null)
-    
-    # Use env var or prompt for selection
-    if [[ -z "$TEST_DOMAIN" ]]; then
+    # Get sender email from env var or prompt user
+    if [[ -z "$TEST_SENDER" ]]; then
         if [ -t 0 ]; then
             # stdin is a terminal, we can prompt
-            echo -e "${YELLOW}Select a domain to use for the test email (1-${DOMAIN_INDEX}):${NC}"
-            read -p "Enter domain number: " SELECTED_NUM < /dev/tty
-            if [[ -z "$SELECTED_NUM" ]] || ! [[ "$SELECTED_NUM" =~ ^[0-9]+$ ]] || [ "$SELECTED_NUM" -lt 1 ] || [ "$SELECTED_NUM" -gt "$DOMAIN_INDEX" ]; then
-                echo -e "${YELLOW}Invalid selection, skipping test email.${NC}"
+            echo -e "${YELLOW}Enter sender email address for test email:${NC}"
+            read -p "Sender email: " TEST_SENDER < /dev/tty
+            if [[ -z "$TEST_SENDER" ]]; then
+                echo -e "${YELLOW}No sender email provided, skipping test email.${NC}"
                 echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
-            else
-                TEST_DOMAIN="${DOMAIN_ARRAY[$SELECTED_NUM]}"
-                echo -e "${GREEN}Selected domain: ${TEST_DOMAIN}${NC}"
             fi
         else
             # stdin is not a terminal (e.g., running via SSH), skip interactive prompt
-            echo -e "${YELLOW}Multiple domains detected but no TEST_DOMAIN env var set and stdin is not a terminal.${NC}"
-            echo -e "${YELLOW}Skipping test email. Set TEST_DOMAIN env var to specify which domain to use.${NC}"
+            echo -e "${YELLOW}No TEST_SENDER env var set and stdin is not a terminal.${NC}"
+            echo -e "${YELLOW}Skipping test email. Set TEST_SENDER env var to specify sender email.${NC}"
             echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
         fi
     else
-        echo -e "${GREEN}Using TEST_DOMAIN from environment: ${TEST_DOMAIN}${NC}"
-        # Validate that TEST_DOMAIN is in the list
-        DOMAIN_VALID=false
-        for domain in "${DOMAIN_ARRAY[@]}"; do
-            if [ "$domain" = "$TEST_DOMAIN" ]; then
-                DOMAIN_VALID=true
-                break
-            fi
-        done
-        if [ "$DOMAIN_VALID" = false ]; then
-            echo -e "${YELLOW}TEST_DOMAIN '${TEST_DOMAIN}' not found in available domains, skipping test email.${NC}"
-            echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
-            TEST_DOMAIN=""
-        fi
+        echo -e "${GREEN}Using TEST_SENDER from environment: ${TEST_SENDER}${NC}"
     fi
     
-    # Send test email if domain was selected
-    if [ -n "$TEST_DOMAIN" ]; then
-        TEST_SENDER="agent1@${TEST_DOMAIN}"
+    # Send test email if sender was provided
+    if [ -n "$TEST_SENDER" ]; then
         TEST_RECEIVER="reverser@${BASE_DOMAIN}"
         TEST_SUBJECT="Test: Hello World"
         TEST_TEXT="Hello World"
