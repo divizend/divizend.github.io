@@ -887,7 +887,8 @@ else
     else
         if [ -z "$TEST_TOOL_NAME" ]; then
             echo -e "${YELLOW}TEST_TOOL_NAME not set, skipping tool test.${NC}"
-            echo -e "${YELLOW}Set TEST_TOOL_NAME, TEST_INPUT_TEXT, and TEST_EXPECTED_OUTPUT to test a tool.${NC}"
+            echo -e "${BLUE}To test a tool, run:${NC}"
+            echo -e "${GREEN}TEST_TOOL_NAME=reverser TEST_INPUT_TEXT=\"Hello\" TEST_EXPECTED_OUTPUT=\"olleH\" ./deploy.sh${NC}"
         fi
         SETUP_SUCCESS=true
     fi
