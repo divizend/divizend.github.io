@@ -246,35 +246,15 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# Root configuration file with shared resources
+# Root configuration file (minimal - resources defined in stream files)
 cat <<EOF > /etc/bento/config.yaml
-resources:
-  - label: s2_inbox_reader
-    type: input
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      prefix: inbox/reverser/
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-      delete_objects: true # Queue-like behavior: delete after read
+# Root config for streams mode - resources are defined in stream files
+EOF
 
-  - label: s2_outbox_reader
-    type: input
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      prefix: outbox/
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-      delete_objects: true
-
+# Stream 1: Ingest - Webhook -> S2 Inbox
+cat <<EOF > /etc/bento/streams/ingest_email.yaml
+input_resources:
   - label: s2_inbox_writer
-    type: output
     aws_s3:
       bucket: ${BASE_DOMAIN}
       path: 'inbox/reverser/\${!uuid_v4()}.json'
@@ -284,20 +264,6 @@ resources:
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
 
-  - label: s2_outbox_writer
-    type: output
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      path: 'outbox/\${!uuid_v4()}.json'
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-EOF
-
-# Stream 1: Ingest - Webhook -> S2 Inbox
-cat <<EOF > /etc/bento/streams/ingest_email.yaml
 input:
   http_server:
     path: /webhooks/resend
@@ -316,6 +282,29 @@ EOF
 
 # Stream 2: Process - S2 Inbox -> Reverse Text -> S2 Outbox
 cat <<EOF > /etc/bento/streams/process_reverser.yaml
+input_resources:
+  - label: s2_inbox_reader
+    aws_s3:
+      bucket: ${BASE_DOMAIN}
+      prefix: inbox/reverser/
+      credentials:
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
+      endpoint: "https://s2.dev/v1/s3"
+      region: "us-east-1"
+      delete_objects: true
+
+output_resources:
+  - label: s2_outbox_writer
+    aws_s3:
+      bucket: ${BASE_DOMAIN}
+      path: 'outbox/\${!uuid_v4()}.json'
+      credentials:
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
+      endpoint: "https://s2.dev/v1/s3"
+      region: "us-east-1"
+
 input:
   resource: s2_inbox_reader
 
@@ -343,6 +332,18 @@ EOF
 
 # Stream 3: Egress - S2 Outbox -> Resend API
 cat <<EOF > /etc/bento/streams/send_email.yaml
+input_resources:
+  - label: s2_outbox_reader
+    aws_s3:
+      bucket: ${BASE_DOMAIN}
+      prefix: outbox/
+      credentials:
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
+      endpoint: "https://s2.dev/v1/s3"
+      region: "us-east-1"
+      delete_objects: true
+
 input:
   resource: s2_outbox_reader
 
@@ -368,7 +369,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/bento -c /etc/bento/config.yaml streams /etc/bento/streams
+ExecStart=/usr/bin/bento streams /etc/bento/streams
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
@@ -379,11 +380,7 @@ EOF
 
 # 9. Start Services
 echo -e "${BLUE}Starting Bento...${NC}"
-# Verify Bento config files exist
-if [ ! -f /etc/bento/config.yaml ]; then
-    echo -e "${RED}Error: Bento config file not found at /etc/bento/config.yaml${NC}"
-    exit 1
-fi
+# Verify Bento stream files exist
 for stream_file in ingest_email.yaml process_reverser.yaml send_email.yaml; do
     if [ ! -f /etc/bento/streams/$stream_file ]; then
         echo -e "${RED}Error: Bento stream file not found at /etc/bento/streams/$stream_file${NC}"
@@ -394,10 +391,10 @@ done
 if command -v bento > /dev/null 2>&1; then
     set +e  # Temporarily disable exit on error for lint check
     if command -v timeout > /dev/null 2>&1; then
-        LINT_OUTPUT=$(timeout 5 bento lint -c /etc/bento/config.yaml /etc/bento/streams/*.yaml 2>&1)
+        LINT_OUTPUT=$(timeout 5 bento lint /etc/bento/streams/*.yaml 2>&1)
         LINT_EXIT=$?
     else
-        LINT_OUTPUT=$(bento lint -c /etc/bento/config.yaml /etc/bento/streams/*.yaml 2>&1)
+        LINT_OUTPUT=$(bento lint /etc/bento/streams/*.yaml 2>&1)
         LINT_EXIT=$?
     fi
     set -e  # Re-enable exit on error
