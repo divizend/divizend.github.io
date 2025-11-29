@@ -322,13 +322,29 @@ EOF
 
 # 9. Start Services
 echo -e "${BLUE}Starting Bento...${NC}"
+# Verify Bento config file exists
+if [ ! -f /etc/bento/streams.yaml ]; then
+    echo -e "${RED}Error: Bento config file not found at /etc/bento/streams.yaml${NC}"
+    exit 1
+fi
+# Validate config if Bento supports it
+if command -v bento > /dev/null 2>&1; then
+    bento lint /etc/bento/streams.yaml > /dev/null 2>&1 || echo -e "${YELLOW}Warning: Bento config validation had issues${NC}"
+fi
 systemctl daemon-reload
 systemctl enable bento
-systemctl restart bento
+if systemctl is-active --quiet bento; then
+    systemctl restart bento
+else
+    systemctl start bento
+fi
+sleep 3  # Give Bento time to start and bind to port
 
 # 10. Health Checks
 echo -e "\n${BLUE}Running health checks...${NC}"
 HEALTH_FAILED=false
+CADDY_FAILED=false
+BENTO_FAILED=false
 
 # Check Caddy service
 if systemctl is-active --quiet caddy; then
@@ -336,6 +352,7 @@ if systemctl is-active --quiet caddy; then
 else
     echo -e "${RED}✗ Caddy service is not running${NC}"
     HEALTH_FAILED=true
+    CADDY_FAILED=true
 fi
 
 # Check Bento service
@@ -344,6 +361,7 @@ if systemctl is-active --quiet bento; then
 else
     echo -e "${RED}✗ Bento service is not running${NC}"
     HEALTH_FAILED=true
+    BENTO_FAILED=true
 fi
 
 # Check Caddy is listening on port 443
@@ -352,6 +370,7 @@ if ss -tuln | grep -q ':443 '; then
 else
     echo -e "${RED}✗ Caddy is not listening on port 443${NC}"
     HEALTH_FAILED=true
+    CADDY_FAILED=true
 fi
 
 # Check Bento is listening on port 4195
@@ -360,6 +379,7 @@ if ss -tuln | grep -q ':4195 '; then
 else
     echo -e "${RED}✗ Bento is not listening on port 4195${NC}"
     HEALTH_FAILED=true
+    BENTO_FAILED=true
 fi
 
 # Check DNS resolution
@@ -392,11 +412,15 @@ else
 fi
 
 if [ "$HEALTH_FAILED" = true ]; then
-    echo -e "\n${RED}Some health checks failed. Please check the service status:${NC}"
-    echo -e "  systemctl status caddy"
-    echo -e "  systemctl status bento"
-    echo -e "  journalctl -u caddy -n 20"
-    echo -e "  journalctl -u bento -n 20"
+    echo -e "\n${RED}Some health checks failed. Debugging commands:${NC}"
+    if [ "$CADDY_FAILED" = true ]; then
+        echo -e "  systemctl status caddy"
+        echo -e "  journalctl -u caddy -n 20"
+    fi
+    if [ "$BENTO_FAILED" = true ]; then
+        echo -e "  systemctl status bento"
+        echo -e "  journalctl -u bento -n 20"
+    fi
     exit 1
 fi
 
