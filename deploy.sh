@@ -45,8 +45,8 @@ if [[ -f "${SCRIPT_DIR}/.sops.yaml" ]]; then
     # Check if local public key is already in .sops.yaml
     if ! grep -q "$LOCAL_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
         echo -e "${BLUE}📝 Updating .sops.yaml with local public key...${NC}"
-        if [[ -f "${SCRIPT_DIR}/scripts/add-recipient.sh" ]]; then
-            bash "${SCRIPT_DIR}/scripts/add-recipient.sh" "$LOCAL_PUBLIC_KEY" || {
+        if [[ -f "${SCRIPT_DIR}/scripts/secrets.sh" ]]; then
+            bash "${SCRIPT_DIR}/scripts/secrets.sh" add-recipient "$LOCAL_PUBLIC_KEY" || {
                 # Fallback: simple sed approach
                 if [[ "$OSTYPE" == "darwin"* ]]; then
                     sed -i '' "s|age: >-|age: >-\\n      ${LOCAL_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"

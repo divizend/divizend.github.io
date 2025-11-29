@@ -48,13 +48,13 @@ The `setup.sh` script automatically:
 
 3. **Add the GitHub Actions public key to `.sops.yaml`:**
    ```bash
-   npm run secrets:add-recipient <public-key>
-   # Or directly: bash scripts/add-recipient.sh <public-key>
+   npm run secrets add-recipient <public-key>
+   # Or directly: bash scripts/secrets.sh add-recipient <public-key>
    ```
 
 4. **Re-encrypt secrets with the new recipient:**
    ```bash
-   npm run secrets:edit  # This will re-encrypt with all recipients
+   npm run secrets edit  # This will re-encrypt with all recipients
    ```
 
 5. **Add GitHub Secret:**
