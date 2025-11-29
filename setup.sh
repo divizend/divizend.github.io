@@ -272,10 +272,28 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# Extract S2 basin name from domain (use main domain part before first dot)
+# Convert domain to valid S2 basin name (replace dots with hyphens, lowercase)
 # S2 basin names must be lowercase letters, numbers, and hyphens only
-# For "divizend.ai", basin would be "divizend"
-S2_BASIN=$(echo "${BASE_DOMAIN}" | cut -d'.' -f1 | tr '[:upper:]' '[:lower:]')
+# For "divizend.ai", basin would be "divizend-ai"
+S2_BASIN=$(echo "${BASE_DOMAIN}" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+
+# Ensure S2 basin exists, create it if it doesn't
+echo -e "${BLUE}Ensuring S2 basin '${S2_BASIN}' exists...${NC}"
+export PATH="$HOME/.s2/bin:$PATH"
+S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
+
+if ! "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
+    echo -e "${BLUE}Creating S2 basin '${S2_BASIN}'...${NC}"
+    if "$S2_CMD" create-basin "${S2_BASIN}" >/dev/null 2>&1; then
+        echo -e "${GREEN}S2 basin '${S2_BASIN}' created successfully.${NC}"
+    else
+        echo -e "${RED}Error: Failed to create S2 basin '${S2_BASIN}'${NC}"
+        echo -e "${YELLOW}Please create it manually: s2 create-basin ${S2_BASIN}${NC}"
+        exit 1
+    fi
+else
+    echo -e "${GREEN}S2 basin '${S2_BASIN}' already exists.${NC}"
+fi
 
 # In streams mode, config.yaml is minimal
 # Cache resources are defined in a separate file and loaded with -r flag
