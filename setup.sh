@@ -828,11 +828,11 @@ test_tool() {
     
     # S2 CLI syntax: echo <data> | s2 append s2://<basin>/<stream>
     # Access token is configured via s2 config set, not as a flag
-    # S2_BASIN is already defined earlier in the script
+    # S2_BASIN is already defined earlier in the script (converted from BASE_DOMAIN)
     if ! echo "$RESEND_PAYLOAD" | "$S2_CMD" append "s2://${S2_BASIN}/outbox" >/dev/null 2>&1; then
         echo -e "${RED}✗ Failed to add test email to S2 outbox stream${NC}"
         echo -e "${YELLOW}  Ensure S2 CLI is installed and configured: s2 config set --access-token <token>${NC}"
-        echo -e "${YELLOW}  Testing S2 CLI: $S2_CMD append s2://${BASE_DOMAIN}/outbox < /dev/null${NC}"
+        echo -e "${YELLOW}  Testing S2 CLI: $S2_CMD append s2://${S2_BASIN}/outbox < /dev/null${NC}"
         return 1
     fi
     echo -e "${GREEN}✓ Test email added to S2 outbox stream${NC}"
