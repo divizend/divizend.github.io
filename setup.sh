@@ -272,9 +272,10 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# Convert domain to valid S2 basin name (replace dots with hyphens, lowercase)
+# Extract S2 basin name from domain (use main domain part before first dot)
 # S2 basin names must be lowercase letters, numbers, and hyphens only
-S2_BASIN=$(echo "${BASE_DOMAIN}" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+# For "divizend.ai", basin would be "divizend"
+S2_BASIN=$(echo "${BASE_DOMAIN}" | cut -d'.' -f1 | tr '[:upper:]' '[:lower:]')
 
 # In streams mode, config.yaml is minimal
 # Cache resources are defined in a separate file and loaded with -r flag
