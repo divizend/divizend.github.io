@@ -244,13 +244,13 @@ echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
 # In streams mode, config.yaml defines cache resources for S2 inputs
+# Cache resources are required for S2 inputs to track sequence numbers
 cat <<EOF > /etc/bento/config.yaml
-resources:
-  caches:
-    s2_inbox_cache:
-      noop: {}
-    s2_outbox_cache:
-      noop: {}
+cache_resources:
+  - label: s2_inbox_cache
+    noop: {}
+  - label: s2_outbox_cache
+    noop: {}
 EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
