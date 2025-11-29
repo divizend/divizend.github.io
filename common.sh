@@ -108,6 +108,7 @@ update_sops_secret() {
     local script_dir=$(get_script_dir)
     local secrets_file="${script_dir}/secrets.encrypted.yaml"
     local sops_config="${script_dir}/.sops.yaml"
+    local secrets_script="${script_dir}/scripts/secrets.sh"
     
     # Check if SOPS is available
     if ! command -v sops &> /dev/null; then
@@ -126,7 +127,13 @@ update_sops_secret() {
     
     # Check if SOPS_AGE_KEY_FILE is set (for decryption)
     if [[ -z "$SOPS_AGE_KEY_FILE" ]] && [[ -z "$SOPS_AGE_KEY" ]]; then
-        return 0  # Silently skip if key not available
+        # Try to load from .age-key-local if it exists
+        local age_key_file="${script_dir}/.age-key-local"
+        if [[ -f "$age_key_file" ]]; then
+            export SOPS_AGE_KEY=$(cat "$age_key_file")
+        else
+            return 0  # Silently skip if key not available
+        fi
     fi
     
     # Set up age key file if SOPS_AGE_KEY is provided
@@ -137,8 +144,21 @@ update_sops_secret() {
         export SOPS_AGE_KEY_FILE="$temp_key_file"
     fi
     
-    # Update the secret using sops
-    if sops --set "[\"${var_name}\"] \"${var_value}\"" "$secrets_file" > /dev/null 2>&1; then
+    # Try to use scripts/secrets.sh if available (preferred method)
+    if [[ -f "$secrets_script" ]] && [[ -x "$secrets_script" ]]; then
+        if bash "$secrets_script" set "$var_name" "$var_value" > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ Updated ${var_name} in encrypted secrets${NC}"
+            # Clean up temp key file
+            if [[ -n "$temp_key_file" ]] && [[ -f "$temp_key_file" ]]; then
+                rm -f "$temp_key_file"
+            fi
+            return 0
+        fi
+    fi
+    
+    # Fallback: use sops directly with correct syntax
+    # SOPS syntax: sops set secrets.encrypted.yaml '["key"]' "value"
+    if sops set "$secrets_file" "[\"${var_name}\"]" "\"${var_value}\"" > /dev/null 2>&1; then
         echo -e "${GREEN}✓ Updated ${var_name} in encrypted secrets${NC}"
     else
         echo -e "${YELLOW}⚠ Failed to update ${var_name} in encrypted secrets${NC}" >&2
