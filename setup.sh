@@ -355,7 +355,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/bento streams /etc/bento/streams
+ExecStart=/usr/bin/bento -c /etc/bento/config.yaml streams /etc/bento/streams
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
