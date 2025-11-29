@@ -261,10 +261,9 @@ pipeline:
     # Verify Svix signature for webhook authenticity
     - bloblang: |
         # Bento http_server provides the body as the root content
-        # The body may already be parsed JSON or may be a string
-        # Check if it's a string and parse it, otherwise use as-is
+        # Try to parse JSON if it's a string, otherwise use as-is
         # TODO: Add Svix signature verification once header access is confirmed
-        root = this.type() == "string" ? this.parse_json() : this
+        root = if this.type() == "string" { this.parse_json() } else { this }
 
 output:
   aws_s3:
