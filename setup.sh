@@ -266,14 +266,10 @@ pipeline:
         root = if this.type() == "string" { this.parse_json() } else { this }
 
 output:
-  aws_s3:
-    bucket: ${BASE_DOMAIN}
-    path: 'inbox/\${!this.data.to[0].split("@")[0]}/\${!uuid_v4()}.json'
-    credentials:
-      id: "${S2_ACCESS_TOKEN}"
-      secret: "${S2_ACCESS_TOKEN}"
-    endpoint: "https://s2.dev/v1/s3"
-    region: "us-east-1"
+  s2:
+    basin: ${BASE_DOMAIN}
+    stream: 'inbox/\${!this.data.to[0].split("@")[0]}'
+    auth_token: "${S2_ACCESS_TOKEN}"
 EOF
 
 # Stream 2: Transform - S2 Inbox -> Apply Tool Logic from bentotools/index.ts -> S2 Outbox
@@ -281,15 +277,10 @@ EOF
 # The inbox name is extracted from the email's "to" field, and the corresponding tool function is called
 cat <<EOF > /etc/bento/streams/transform_email.yaml
 input:
-  aws_s3:
-    bucket: ${BASE_DOMAIN}
-    prefix: inbox/
-    credentials:
-      id: "${S2_ACCESS_TOKEN}"
-      secret: "${S2_ACCESS_TOKEN}"
-    endpoint: "https://s2.dev/v1/s3"
-    region: "us-east-1"
-    delete_objects: true
+  s2:
+    basin: ${BASE_DOMAIN}
+    streams: inbox/
+    auth_token: "${S2_ACCESS_TOKEN}"
 
 pipeline:
   processors:
@@ -322,28 +313,19 @@ pipeline:
         root.html = "<p>Here is your transformed text:</p><blockquote>" + \$transformed_text + "</blockquote>"
 
 output:
-  aws_s3:
-    bucket: ${BASE_DOMAIN}
-    path: 'outbox/\${!uuid_v4()}.json'
-    credentials:
-      id: "${S2_ACCESS_TOKEN}"
-      secret: "${S2_ACCESS_TOKEN}"
-    endpoint: "https://s2.dev/v1/s3"
-    region: "us-east-1"
+  s2:
+    basin: ${BASE_DOMAIN}
+    stream: outbox
+    auth_token: "${S2_ACCESS_TOKEN}"
 EOF
 
 # Stream 3: Send - S2 Outbox -> Resend API
 cat <<EOF > /etc/bento/streams/send_email.yaml
 input:
-  aws_s3:
-    bucket: ${BASE_DOMAIN}
-    prefix: outbox/
-    credentials:
-      id: "${S2_ACCESS_TOKEN}"
-      secret: "${S2_ACCESS_TOKEN}"
-    endpoint: "https://s2.dev/v1/s3"
-    region: "us-east-1"
-    delete_objects: true
+  s2:
+    basin: ${BASE_DOMAIN}
+    streams: outbox
+    auth_token: "${S2_ACCESS_TOKEN}"
 
 output:
   http_client:
