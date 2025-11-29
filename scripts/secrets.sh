@@ -41,6 +41,21 @@ case "$command" in
         fi
         KEY="$1"
         VALUE="$2"
+        
+        # Create secrets.encrypted.yaml if it doesn't exist
+        if [[ ! -f "$SECRETS_FILE" ]]; then
+            SOPS_CONFIG="${SCRIPT_DIR}/../.sops.yaml"
+            if [[ ! -f "$SOPS_CONFIG" ]]; then
+                echo "Error: .sops.yaml not found. Please run deploy.sh first to set up encryption." >&2
+                exit 1
+            fi
+            # Create empty YAML file and encrypt it
+            echo "{}" | sops_cmd -e "$SECRETS_FILE" /dev/stdin > /dev/null 2>&1 || {
+                echo "Error: Failed to create secrets.encrypted.yaml" >&2
+                exit 1
+            }
+        fi
+        
         sops_cmd set "$SECRETS_FILE" "[\"${KEY}\"]" "\"${VALUE}\""
         echo "✓ Set ${KEY}"
         ;;

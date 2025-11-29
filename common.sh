@@ -115,14 +115,25 @@ update_sops_secret() {
         return 0  # Silently skip if SOPS not available
     fi
     
-    # Check if secrets.encrypted.yaml exists
-    if [[ ! -f "$secrets_file" ]]; then
-        return 0  # Silently skip if file doesn't exist
-    fi
-    
     # Check if .sops.yaml exists
     if [[ ! -f "$sops_config" ]]; then
         return 0  # Silently skip if config doesn't exist
+    fi
+    
+    # Create secrets.encrypted.yaml if it doesn't exist
+    if [[ ! -f "$secrets_file" ]]; then
+        # Create empty YAML file and encrypt it
+        if ! echo "{}" | sops -e "$sops_config" /dev/stdin > "$secrets_file" 2>/dev/null; then
+            # If that fails, try with SOPS_AGE_KEY set
+            if [[ -n "$SOPS_AGE_KEY" ]] || [[ -n "$SOPS_AGE_KEY_FILE" ]]; then
+                echo "{}" | sops -e "$sops_config" /dev/stdin > "$secrets_file" 2>/dev/null || {
+                    echo -e "${YELLOW}⚠ Failed to create secrets.encrypted.yaml${NC}" >&2
+                    return 0
+                }
+            else
+                return 0  # Silently skip if we can't create the file
+            fi
+        fi
     fi
     
     # Check if SOPS_AGE_KEY_FILE is set (for decryption)
