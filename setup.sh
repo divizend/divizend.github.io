@@ -253,119 +253,122 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# Main configuration file with shared resources
-# In streams mode, resources are defined in a 'resources' section
+# In streams mode, resources are defined inline in stream files or in a minimal config
+# Create an empty config.yaml (Bento will use it for HTTP settings if needed)
 cat <<EOF > /etc/bento/config.yaml
-resources:
-  input_resources:
-    - label: s2_inbox_reader
-      aws_s3:
-        bucket: ${BASE_DOMAIN}
-        prefix: inbox/reverser/
-        credentials:
-          id: "${S2_ACCESS_TOKEN}"
-          secret: "${S2_ACCESS_TOKEN}"
-        endpoint: "https://s2.dev/v1/s3"
-        region: "us-east-1"
-        delete_objects: true
-
-    - label: s2_outbox_reader
-      aws_s3:
-        bucket: ${BASE_DOMAIN}
-        prefix: outbox/
-        credentials:
-          id: "${S2_ACCESS_TOKEN}"
-          secret: "${S2_ACCESS_TOKEN}"
-        endpoint: "https://s2.dev/v1/s3"
-        region: "us-east-1"
-        delete_objects: true
-
-  output_resources:
-    - label: s2_inbox_writer
-      aws_s3:
-        bucket: ${BASE_DOMAIN}
-        path: 'inbox/reverser/\${!uuid_v4()}.json'
-        credentials:
-          id: "${S2_ACCESS_TOKEN}"
-          secret: "${S2_ACCESS_TOKEN}"
-        endpoint: "https://s2.dev/v1/s3"
-        region: "us-east-1"
-
-    - label: s2_outbox_writer
-      aws_s3:
-        bucket: ${BASE_DOMAIN}
-        path: 'outbox/\${!uuid_v4()}.json'
-        credentials:
-          id: "${S2_ACCESS_TOKEN}"
-          secret: "${S2_ACCESS_TOKEN}"
-        endpoint: "https://s2.dev/v1/s3"
-        region: "us-east-1"
+{}
 EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
 cat <<EOF > /etc/bento/streams/ingest_email.yaml
-input:
-  http_server:
+output_resources:
+  - label: s2_inbox_writer
+    aws_s3:
+      bucket: ${BASE_DOMAIN}
+      path: 'inbox/reverser/\${!uuid_v4()}.json'
+      credentials:
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
+      endpoint: "https://s2.dev/v1/s3"
+      region: "us-east-1"
+
+    input:
+      http_server:
     path: /webhooks/resend
-    allowed_verbs: [POST]
-    timeout: 5s
-
-pipeline:
-  processors:
-    # In a strict production environment, you would verify the svix-signature here.
-    # Passing raw payload to stream for durability.
-    - mapping: root = this
-
-output:
-  resource: s2_inbox_writer
+        allowed_verbs: [POST]
+        timeout: 5s
+    
+    pipeline:
+      processors:
+        # In a strict production environment, you would verify the svix-signature here.
+        # Passing raw payload to stream for durability.
+        - mapping: root = this
+    
+    output:
+      resource: s2_inbox_writer
 EOF
 
 # Stream 2: Process - S2 Inbox -> Reverse Text -> S2 Outbox
 cat <<EOF > /etc/bento/streams/process_reverser.yaml
-input:
-  resource: s2_inbox_reader
+input_resources:
+  - label: s2_inbox_reader
+    aws_s3:
+      bucket: ${BASE_DOMAIN}
+      prefix: inbox/reverser/
+      credentials:
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
+      endpoint: "https://s2.dev/v1/s3"
+      region: "us-east-1"
+      delete_objects: true
 
-pipeline:
-  processors:
-    - bloblang: |
-        # Extract relevant fields from Resend Payload
-        let original_text = this.data.text | ""
-        let sender = this.data.from
-        let subject = this.data.subject
+output_resources:
+  - label: s2_outbox_writer
+    aws_s3:
+      bucket: ${BASE_DOMAIN}
+      path: 'outbox/\${!uuid_v4()}.json'
+      credentials:
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
+      endpoint: "https://s2.dev/v1/s3"
+      region: "us-east-1"
+
+    input:
+      resource: s2_inbox_reader
+    
+    pipeline:
+      processors:
+        - bloblang: |
+            # Extract relevant fields from Resend Payload
+            let original_text = this.data.text | ""
+            let sender = this.data.from
+            let subject = this.data.subject
 
         # Automatically determine receiver (original sender) and sender (reverser@domain)
         let receiver = \$sender
         let sender_domain = "${BASE_DOMAIN}"
         let sender_email = "reverser@" + \$sender_domain
 
-        # Business Logic: Reverse the text
-        # Splitting by empty string creates array of chars, reverse array, join back
-        let reversed_text = \$original_text.split("").reverse().join("")
+            # Business Logic: Reverse the text
+            # Splitting by empty string creates array of chars, reverse array, join back
+            let reversed_text = \$original_text.split("").reverse().join("")
 
         # Construct Resend API Payload with automatically determined emails
         root.from = "Reverser <" + \$sender_email + ">"
         root.to = [\$receiver]
-        root.subject = "Re: " + \$subject
-        root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
+            root.subject = "Re: " + \$subject
+            root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
 
-output:
-  resource: s2_outbox_writer
+    output:
+      resource: s2_outbox_writer
 EOF
 
 # Stream 3: Egress - S2 Outbox -> Resend API
 cat <<EOF > /etc/bento/streams/send_email.yaml
-input:
-  resource: s2_outbox_reader
+input_resources:
+  - label: s2_outbox_reader
+    aws_s3:
+      bucket: ${BASE_DOMAIN}
+      prefix: outbox/
+      credentials:
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
+      endpoint: "https://s2.dev/v1/s3"
+      region: "us-east-1"
+      delete_objects: true
 
-output:
-  http_client:
-    url: https://api.resend.com/emails
-    verb: POST
-    headers:
+    input:
+      resource: s2_outbox_reader
+      
+    output:
+      http_client:
+        url: https://api.resend.com/emails
+        verb: POST
+        headers:
       Authorization: "Bearer ${RESEND_API_KEY}"
-      Content-Type: "application/json"
-    retries: 3
-    # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
+          Content-Type: "application/json"
+        retries: 3
+        # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
 EOF
 
 # 8. Systemd Service Setup
@@ -379,7 +382,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/bento -c /etc/bento/config.yaml streams /etc/bento/streams
+ExecStart=/usr/bin/bento streams /etc/bento/streams
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
