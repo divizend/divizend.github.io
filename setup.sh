@@ -327,11 +327,18 @@ if [ ! -f /etc/bento/streams.yaml ]; then
     echo -e "${RED}Error: Bento config file not found at /etc/bento/streams.yaml${NC}"
     exit 1
 fi
-# Validate config if Bento supports it
+# Validate config if Bento supports it (with timeout to prevent hanging)
 if command -v bento > /dev/null 2>&1; then
-    LINT_OUTPUT=$(bento lint /etc/bento/streams.yaml 2>&1)
-    LINT_EXIT=$?
-    if [ $LINT_EXIT -ne 0 ]; then
+    set +e  # Temporarily disable exit on error for lint check
+    if command -v timeout > /dev/null 2>&1; then
+        LINT_OUTPUT=$(timeout 5 bento lint /etc/bento/streams.yaml 2>&1)
+        LINT_EXIT=$?
+    else
+        LINT_OUTPUT=$(bento lint /etc/bento/streams.yaml 2>&1)
+        LINT_EXIT=$?
+    fi
+    set -e  # Re-enable exit on error
+    if [ $LINT_EXIT -ne 0 ] && [ -n "$LINT_OUTPUT" ]; then
         echo -e "${YELLOW}Warning: Bento config validation had issues:${NC}"
         echo "$LINT_OUTPUT" | sed 's/^/  /'
     fi
