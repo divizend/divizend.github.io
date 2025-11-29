@@ -291,7 +291,8 @@ pipeline:
         let signature_valid = \$svix_signature == \$expected_sig || \$svix_signature.contains(\$computed_signature)
         
         # Check timestamp to prevent replay attacks (within 5 minutes = 300 seconds)
-        let current_timestamp = now().unix()
+        # Bento bloblang uses timestamp() or now() for current time
+        let current_timestamp = timestamp_unix()
         let request_timestamp = \$svix_timestamp.number()
         let time_diff = (\$current_timestamp - \$request_timestamp).abs()
         let timestamp_valid = \$time_diff < 300
@@ -369,7 +370,7 @@ output_resources:
         # Construct Resend API Payload with automatically determined emails
         root.from = \$inbox_name.capitalize() + " <" + \$sender_email + ">"
         root.to = [\$receiver]
-            root.subject = "Re: " + \$subject
+        root.subject = "Re: " + \$subject
         root.html = "<p>Here is your transformed text:</p><blockquote>" + \$transformed_text + "</blockquote>"
 
     output:
@@ -399,8 +400,8 @@ input_resources:
         verb: POST
         headers:
       Authorization: "Bearer ${RESEND_API_KEY}"
-          Content-Type: "application/json"
-        retries: 3
+      Content-Type: "application/json"
+    retries: 3
         # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
 EOF
 
