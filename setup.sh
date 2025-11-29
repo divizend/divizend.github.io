@@ -245,11 +245,12 @@ mkdir -p /etc/bento/streams
 
 # In streams mode, config.yaml defines cache resources for S2 inputs
 cat <<EOF > /etc/bento/config.yaml
-cache_resources:
-  - label: s2_inbox_cache
-    noop: {}
-  - label: s2_outbox_cache
-    noop: {}
+resources:
+  caches:
+    s2_inbox_cache:
+      noop: {}
+    s2_outbox_cache:
+      noop: {}
 EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
