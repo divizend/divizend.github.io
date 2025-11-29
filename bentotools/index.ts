@@ -83,12 +83,12 @@ root._subject = $subject`,
 const toolsRoot = "${TOOLS_ROOT_GITHUB}";
 const match = toolsRoot.match(/^https:\\/\\/github\\.com\\/([^\\/]+)\\/([^\\/]+)(?:\\/([^\\/]+))?(?:\\/(.*))?$/);
 if (!match) {
-  throw new Error(\`Invalid TOOLS_ROOT_GITHUB format: \${toolsRoot}\`);
+  throw new Error("Invalid TOOLS_ROOT_GITHUB format: " + toolsRoot);
 }
 const [, owner, repo, branch, path] = match;
 const branchName = branch || "main";
-const pathPart = path ? \`\${path}/\`.replace(/\\/+$/, "") : "";
-const rawUrl = \`https://raw.githubusercontent.com/\${owner}/\${repo}/\${branchName}\${pathPart ? \`/\${pathPart}\` : ""}/index.ts\`;
+const pathPart = path ? (path + "/").replace(/\\/+$/, "") : "";
+const rawUrl = "https://raw.githubusercontent.com/" + owner + "/" + repo + "/" + branchName + (pathPart ? "/" + pathPart : "") + "/index.ts";
 
 // Import tools from GitHub
 const tools = await import(rawUrl);
@@ -101,7 +101,7 @@ const emailData = root._email_data;
 const toolFunction = tools[inboxName];
 
 if (!toolFunction || typeof toolFunction !== "function") {
-  throw new Error(\`Tool function "\${inboxName}" not found in index.ts\`);
+  throw new Error("Tool function \\"" + inboxName + "\\" not found in index.ts");
 }
 
 // Construct Email object
