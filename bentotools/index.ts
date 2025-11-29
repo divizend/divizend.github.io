@@ -77,21 +77,10 @@ root._subject = $subject`,
       },
       {
         script: {
-          language: "bun",
+          language: "javascript",
           code: `
-// Parse TOOLS_ROOT_GITHUB to construct raw GitHub URL
-const toolsRoot = "\${TOOLS_ROOT_GITHUB}";
-const match = toolsRoot.match(/^https:\\/\\/github\\.com\\/([^\\/]+)\\/([^\\/]+)(?:\\/([^\\/]+))?(?:\\/(.*))?$/);
-if (!match) {
-  throw new Error("Invalid TOOLS_ROOT_GITHUB format: " + toolsRoot);
-}
-const [, owner, repo, branch, path] = match;
-const branchName = branch || "main";
-const pathPart = path ? (path + "/").replace(/\\/+$/, "") : "";
-const rawUrl = "https://raw.githubusercontent.com/" + owner + "/" + repo + "/" + branchName + (pathPart ? "/" + pathPart : "") + "/index.ts";
-
-// Import tools from GitHub
-const tools = await import(rawUrl);
+// Import tools from local index.ts (we're in /opt/bento-sync)
+const tools = await import("./index.ts");
 import type { Email } from "bentotools";
 
 const inboxName = root._inbox_name;
