@@ -94,6 +94,37 @@ echo "[DEPLOY] Running setup on server..."
 # Get SERVER_IP using common function (will load from encrypted secrets if available)
 get_config_value SERVER_IP "Enter Server IP address" "SERVER_IP is required"
 
+# Get or generate server's public key and add it to .sops.yaml before re-encrypting
+echo "[DEPLOY] Getting server's age public key..."
+SERVER_AGE_KEY_FILE="/root/.age-key-server"
+SERVER_PUBLIC_KEY=$(ssh root@${SERVER_IP} "if [ -f $SERVER_AGE_KEY_FILE ]; then grep '^# public key:' $SERVER_AGE_KEY_FILE | cut -d' ' -f4; else age-keygen -o $SERVER_AGE_KEY_FILE 2>&1 | grep '^Public key:' | cut -d' ' -f3; fi" 2>/dev/null || true)
+
+if [[ -z "$SERVER_PUBLIC_KEY" ]]; then
+    echo "[ERROR] Could not get server's public key" >&2
+    exit 1
+fi
+
+# Add server public key to .sops.yaml if not present
+if ! grep -q "$SERVER_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
+    echo "[DEPLOY] Adding server public key to .sops.yaml..."
+    bash "${SCRIPT_DIR}/scripts/secrets.sh" add-recipient "$SERVER_PUBLIC_KEY"
+    
+    # Re-encrypt secrets with server key included
+    if [[ -f "${SCRIPT_DIR}/secrets.encrypted.yaml" ]]; then
+        echo "[DEPLOY] Re-encrypting secrets with server key..."
+        TEMP_SECRETS=$(mktemp)
+        if sops -d "${SCRIPT_DIR}/secrets.encrypted.yaml" > "$TEMP_SECRETS" 2>/dev/null; then
+            sops -e "$TEMP_SECRETS" > "${SCRIPT_DIR}/secrets.encrypted.yaml"
+            rm -f "$TEMP_SECRETS"
+            echo "[DEPLOY] ✓ Secrets re-encrypted with server key"
+        else
+            echo "[ERROR] Could not decrypt secrets for re-encryption" >&2
+            rm -f "$TEMP_SECRETS"
+            exit 1
+        fi
+    fi
+fi
+
 # Copy files to server
 scp setup.sh root@${SERVER_IP}:/tmp/setup.sh.local > /dev/null
 scp common.sh root@${SERVER_IP}:/tmp/common.sh > /dev/null

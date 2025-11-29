@@ -122,22 +122,13 @@ if [[ -f "/tmp/.sops.yaml" ]]; then
             sed -i "s|age: >-|age: >-\\n      ${SERVER_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"
         fi
     fi
-    # Re-encrypt secrets.encrypted.yaml with updated recipients (including server key)
+    # Copy secrets.encrypted.yaml (already re-encrypted on local machine with server key)
     if [[ -f "/tmp/secrets.encrypted.yaml" ]]; then
-        cp /tmp/secrets.encrypted.yaml "${SCRIPT_DIR}/secrets.encrypted.yaml" 2>/dev/null || true
-        echo -e "${BLUE}🔐 Re-encrypting secrets with all recipients (including server key)...${NC}"
-        # Decrypt with any available key, then re-encrypt with all recipients
-        TEMP_SECRETS=$(mktemp)
-        if sops -d "${SCRIPT_DIR}/secrets.encrypted.yaml" > "$TEMP_SECRETS" 2>/dev/null; then
-            sops -e "$TEMP_SECRETS" > "${SCRIPT_DIR}/secrets.encrypted.yaml"
-            rm -f "$TEMP_SECRETS"
-            echo -e "${GREEN}✓ Secrets re-encrypted with all recipients${NC}"
-        else
-            echo -e "${RED}Error: Could not decrypt existing secrets.encrypted.yaml${NC}" >&2
-            echo -e "${RED}This indicates a problem with the encryption keys or the secrets file.${NC}" >&2
-            echo -e "${RED}Please ensure secrets.encrypted.yaml is properly encrypted and accessible.${NC}" >&2
+        cp /tmp/secrets.encrypted.yaml "${SCRIPT_DIR}/secrets.encrypted.yaml" 2>/dev/null || {
+            echo -e "${RED}Error: Could not copy secrets.encrypted.yaml${NC}" >&2
             exit 1
-        fi
+        }
+        echo -e "${GREEN}✓ Secrets file copied (already encrypted with server key)${NC}"
     fi
 fi
 
