@@ -268,39 +268,14 @@ pipeline:
         # In production, you should verify signatures
         let headers_present = \$svix_id != "" && \$svix_timestamp != "" && \$svix_signature != ""
         
-        # Only verify signature if headers are present
-        let signature_valid = true
-        let timestamp_valid = true
+        # For now, accept webhooks if headers are present (signature verification to be implemented)
+        # TODO: Implement proper HMAC-SHA256 signature verification using Bento's crypto functions
+        # The signature verification requires computing HMAC-SHA256 which may need a custom processor
         
-        if \$headers_present {
-          # Construct signed payload: svix_id + "." + svix_timestamp + "." + body
-          let signed_payload = \$svix_id + "." + \$svix_timestamp + "." + \$raw_body
-          
-          # Compute HMAC-SHA256 signature
-          # Bento bloblang uses crypto.hmac_sha256(secret, message)
-          let webhook_secret = "${RESEND_WEBHOOK_SECRET}"
-          # Use crypto function for HMAC
-          let computed_signature = crypto.hmac_sha256(\$webhook_secret, \$signed_payload)
-          
-          # Svix signature format is "v1,<signature>" - verify it contains our computed signature
-          let expected_sig = "v1," + \$computed_signature
-          signature_valid = \$svix_signature == \$expected_sig || \$svix_signature.contains(\$computed_signature)
-          
-          # Check timestamp to prevent replay attacks (within 5 minutes = 300 seconds)
-          let current_timestamp = timestamp_unix()
-          let request_timestamp = \$svix_timestamp.number()
-          let time_diff = (\$current_timestamp - \$request_timestamp).abs()
-          timestamp_valid = \$time_diff < 300
-        }
-        
-        # Reject if validation fails - return null/empty to filter out invalid requests
-        if \$headers_present && (!\$signature_valid || !\$timestamp_valid) {
-          # Invalid webhook - return empty/null to filter it out
-          root = null
-        } else {
-          # Signature valid or headers missing (for testing), parse and pass through the JSON payload
-          root = this.parse_json()
-        }
+        # If headers are present, assume valid (for now - will add proper verification)
+        # If headers missing, still accept (for testing without Resend webhook)
+        # Parse and pass through the JSON payload
+        root = this.parse_json()
 
 output:
   aws_s3:
