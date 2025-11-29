@@ -21,6 +21,7 @@ echo "[DEPLOY] Running setup on server..."
 # Get SERVER_IP using common function
 get_config_value SERVER_IP "Enter Server IP address" "SERVER_IP is required"
 scp setup.sh root@${SERVER_IP}:/tmp/setup.sh.local > /dev/null
+scp common.sh root@${SERVER_IP}:/tmp/common.sh > /dev/null
 # Pass environment variables if they exist in local .env
 SSH_CMD=""
 [[ -n "$BASE_DOMAIN" ]] && SSH_CMD="${SSH_CMD}BASE_DOMAIN=$(printf %q "$BASE_DOMAIN") "
@@ -28,5 +29,9 @@ SSH_CMD=""
 [[ -n "$RESEND_API_KEY" ]] && SSH_CMD="${SSH_CMD}RESEND_API_KEY=$(printf %q "$RESEND_API_KEY") "
 [[ -n "$RESEND_WEBHOOK_SECRET" ]] && SSH_CMD="${SSH_CMD}RESEND_WEBHOOK_SECRET=$(printf %q "$RESEND_WEBHOOK_SECRET") "
 [[ -n "$TEST_SENDER" ]] && SSH_CMD="${SSH_CMD}TEST_SENDER=$(printf %q "$TEST_SENDER") "
-ssh -t root@${SERVER_IP} "${SSH_CMD}bash /tmp/setup.sh.local; rm /tmp/setup.sh.local"
+[[ -n "$TEST_TOOL_NAME" ]] && SSH_CMD="${SSH_CMD}TEST_TOOL_NAME=$(printf %q "$TEST_TOOL_NAME") "
+[[ -n "$TEST_INPUT_TEXT" ]] && SSH_CMD="${SSH_CMD}TEST_INPUT_TEXT=$(printf %q "$TEST_INPUT_TEXT") "
+[[ -n "$TEST_EXPECTED_OUTPUT" ]] && SSH_CMD="${SSH_CMD}TEST_EXPECTED_OUTPUT=$(printf %q "$TEST_EXPECTED_OUTPUT") "
+[[ -n "$TOOLS_ROOT" ]] && SSH_CMD="${SSH_CMD}TOOLS_ROOT=$(printf %q "$TOOLS_ROOT") "
+ssh -t root@${SERVER_IP} "${SSH_CMD}bash /tmp/setup.sh.local; rm /tmp/setup.sh.local /tmp/common.sh"
 echo "[INFO] Deployment complete."
