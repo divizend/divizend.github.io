@@ -58,6 +58,8 @@ read -s -p "Paste the Resend Webhook Secret here: " RESEND_WEBHOOK_SECRET
 echo ""
 if [[ -z "$RESEND_WEBHOOK_SECRET" ]]; then echo -e "${RED}Webhook Secret is required.${NC}"; exit 1; fi
 
+exit
+
 # 3. System Dependencies
 echo -e "\n${BLUE}Installing system dependencies...${NC}"
 apt-get update -qq
