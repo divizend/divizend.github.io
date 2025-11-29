@@ -329,7 +329,12 @@ if [ ! -f /etc/bento/streams.yaml ]; then
 fi
 # Validate config if Bento supports it
 if command -v bento > /dev/null 2>&1; then
-    bento lint /etc/bento/streams.yaml > /dev/null 2>&1 || echo -e "${YELLOW}Warning: Bento config validation had issues${NC}"
+    LINT_OUTPUT=$(bento lint /etc/bento/streams.yaml 2>&1)
+    LINT_EXIT=$?
+    if [ $LINT_EXIT -ne 0 ]; then
+        echo -e "${YELLOW}Warning: Bento config validation had issues:${NC}"
+        echo "$LINT_OUTPUT" | sed 's/^/  /'
+    fi
 fi
 systemctl daemon-reload
 systemctl enable bento
