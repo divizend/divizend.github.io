@@ -727,14 +727,28 @@ else
             # Check 1: Bento service health (do this first as it's most reliable)
             BENTO_ACTIVE=false
             BENTO_PORT_OPEN=false
-            if systemctl is-active --quiet bento 2>/dev/null || systemctl status bento --no-pager 2>/dev/null | grep -q "active (running)"; then
+            # Check if Bento is active using multiple methods
+            if systemctl is-active --quiet bento 2>/dev/null; then
                 BENTO_ACTIVE=true
-                if ss -tuln 2>/dev/null | grep -q ':4195 ' || netstat -tuln 2>/dev/null | grep -q ':4195 '; then
+            elif systemctl status bento --no-pager 2>/dev/null | grep -qi "active (running)\|active: active (running)"; then
+                BENTO_ACTIVE=true
+            fi
+            
+            # Check if port is open
+            if command -v ss > /dev/null 2>&1; then
+                if ss -tuln 2>/dev/null | grep -q ':4195 '; then
                     BENTO_PORT_OPEN=true
-                    VERIFICATION_MESSAGES+=("✓ Bento service is running and listening on port 4195")
-                else
-                    VERIFICATION_MESSAGES+=("⚠ Bento service is running but port 4195 not detected (may be starting)")
                 fi
+            elif command -v netstat > /dev/null 2>&1; then
+                if netstat -tuln 2>/dev/null | grep -q ':4195 '; then
+                    BENTO_PORT_OPEN=true
+                fi
+            fi
+            
+            if [ "$BENTO_ACTIVE" = true ] && [ "$BENTO_PORT_OPEN" = true ]; then
+                VERIFICATION_MESSAGES+=("✓ Bento service is running and listening on port 4195")
+            elif [ "$BENTO_ACTIVE" = true ]; then
+                VERIFICATION_MESSAGES+=("⚠ Bento service is running but port 4195 not detected")
             else
                 VERIFICATION_MESSAGES+=("✗ Bento service is not running")
                 VERIFICATION_PASSED=false
@@ -774,10 +788,21 @@ else
             # Additional check: Test webhook endpoint is accessible
             WEBHOOK_URL="https://${STREAM_DOMAIN}/webhooks/resend"
             WEBHOOK_TEST=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -d '{"test":"data"}' 2>/dev/null || echo "000")
-            if [ "$WEBHOOK_TEST" != "000" ]; then
-                VERIFICATION_MESSAGES+=("✓ Webhook endpoint is accessible (HTTP $WEBHOOK_TEST)")
+            if [ "$WEBHOOK_TEST" != "000" ] && [ "$WEBHOOK_TEST" != "404" ]; then
+                VERIFICATION_MESSAGES+=("✓ Webhook endpoint is accessible and responding (HTTP $WEBHOOK_TEST)")
+            elif [ "$WEBHOOK_TEST" = "404" ]; then
+                VERIFICATION_MESSAGES+=("⚠ Webhook endpoint returned 404 (may need valid Resend webhook payload)")
             else
                 VERIFICATION_MESSAGES+=("⚠ Webhook endpoint accessibility check failed")
+            fi
+            
+            # Final check: Look for any recent successful processing indicators
+            if [ -n "$RECENT_LOGS" ]; then
+                # Count log entries to see if there's activity
+                LOG_LINES=$(echo "$RECENT_LOGS" | wc -l)
+                if [ "$LOG_LINES" -gt 10 ]; then
+                    VERIFICATION_MESSAGES+=("✓ Bento logs show recent activity ($LOG_LINES lines)")
+                fi
             fi
             
             # Display verification results
