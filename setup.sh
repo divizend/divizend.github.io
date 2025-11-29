@@ -177,10 +177,10 @@ fi
 
 # 7. Configure Bento (Streams Mode)
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
-mkdir -p /etc/bento
+mkdir -p /etc/bento/streams
 
-# We use Bento's 'streams' mode to run isolated pipelines in one process
-cat <<EOF > /etc/bento/streams.yaml
+# Main configuration file with HTTP settings and shared resources
+cat <<EOF > /etc/bento/config.yaml
 # Global HTTP settings for the Bento instance
 http:
   enabled: true
@@ -230,73 +230,67 @@ output_resources:
         secret: "${S2_ACCESS_TOKEN}"
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
+EOF
 
-# ------------------------------------------------------------------------------
-# Stream Definitions
-# ------------------------------------------------------------------------------
-# ----------------------------------------------------
-# 1. Ingest: Webhook -> S2 Inbox
-# ----------------------------------------------------
-ingest_email:
-  input:
-    http_server:
-      path: /webhooks/resend
-      allowed_verbs: [POST]
-      timeout: 5s
-  
-  pipeline:
-    processors:
-      # In a strict production environment, you would verify the svix-signature here.
-      # Passing raw payload to stream for durability.
-      - mapping: root = this
-  
-  output:
-    resource: s2_inbox_writer
+# Stream 1: Ingest - Webhook -> S2 Inbox
+cat <<EOF > /etc/bento/streams/ingest_email.yaml
+input:
+  http_server:
+    path: /webhooks/resend
+    allowed_verbs: [POST]
+    timeout: 5s
 
-# ----------------------------------------------------
-# 2. Logic: S2 Inbox -> Reverse Text -> S2 Outbox
-# ----------------------------------------------------
-process_reverser:
-  input:
-    resource: s2_inbox_reader
-  
-  pipeline:
-    processors:
-      - bloblang: |
-          # Extract relevant fields from Resend Payload
-          let original_text = this.data.text | ""
-          let sender = this.data.from
-          let subject = this.data.subject
+pipeline:
+  processors:
+    # In a strict production environment, you would verify the svix-signature here.
+    # Passing raw payload to stream for durability.
+    - mapping: root = this
 
-          # Business Logic: Reverse the text
-          # Splitting by empty string creates array of chars, reverse array, join back
-          let reversed_text = \$original_text.split("").reverse().join("")
+output:
+  resource: s2_inbox_writer
+EOF
 
-          # Construct Resend API Payload
-          root.from = "Reverser <reverser@${BASE_DOMAIN}>"
-          root.to = [\$sender]
-          root.subject = "Re: " + \$subject
-          root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
+# Stream 2: Process - S2 Inbox -> Reverse Text -> S2 Outbox
+cat <<EOF > /etc/bento/streams/process_reverser.yaml
+input:
+  resource: s2_inbox_reader
 
-  output:
-    resource: s2_outbox_writer
+pipeline:
+  processors:
+    - bloblang: |
+        # Extract relevant fields from Resend Payload
+        let original_text = this.data.text | ""
+        let sender = this.data.from
+        let subject = this.data.subject
 
-# ----------------------------------------------------
-# 3. Egress: S2 Outbox -> Resend API
-# ----------------------------------------------------
-send_email:
-  input:
-    resource: s2_outbox_reader
-    
-  output:
-    http_client:
-      url: https://api.resend.com/emails
-      verb: POST
-      headers:
-        Authorization: "Bearer ${RESEND_API_KEY}"
-        Content-Type: "application/json"
-      retries: 3
-      # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
+        # Business Logic: Reverse the text
+        # Splitting by empty string creates array of chars, reverse array, join back
+        let reversed_text = \$original_text.split("").reverse().join("")
+
+        # Construct Resend API Payload
+        root.from = "Reverser <reverser@${BASE_DOMAIN}>"
+        root.to = [\$sender]
+        root.subject = "Re: " + \$subject
+        root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
+
+output:
+  resource: s2_outbox_writer
+EOF
+
+# Stream 3: Egress - S2 Outbox -> Resend API
+cat <<EOF > /etc/bento/streams/send_email.yaml
+input:
+  resource: s2_outbox_reader
+
+output:
+  http_client:
+    url: https://api.resend.com/emails
+    verb: POST
+    headers:
+      Authorization: "Bearer ${RESEND_API_KEY}"
+      Content-Type: "application/json"
+    retries: 3
+    # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
 EOF
 
 # 8. Systemd Service Setup
@@ -310,7 +304,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/bento streams /etc/bento/streams.yaml
+ExecStart=/usr/bin/bento streams /etc/bento/config.yaml
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
@@ -321,19 +315,25 @@ EOF
 
 # 9. Start Services
 echo -e "${BLUE}Starting Bento...${NC}"
-# Verify Bento config file exists
-if [ ! -f /etc/bento/streams.yaml ]; then
-    echo -e "${RED}Error: Bento config file not found at /etc/bento/streams.yaml${NC}"
+# Verify Bento config files exist
+if [ ! -f /etc/bento/config.yaml ]; then
+    echo -e "${RED}Error: Bento config file not found at /etc/bento/config.yaml${NC}"
     exit 1
 fi
+for stream_file in ingest_email.yaml process_reverser.yaml send_email.yaml; do
+    if [ ! -f /etc/bento/streams/$stream_file ]; then
+        echo -e "${RED}Error: Bento stream file not found at /etc/bento/streams/$stream_file${NC}"
+        exit 1
+    fi
+done
 # Validate config if Bento supports it (with timeout to prevent hanging)
 if command -v bento > /dev/null 2>&1; then
     set +e  # Temporarily disable exit on error for lint check
     if command -v timeout > /dev/null 2>&1; then
-        LINT_OUTPUT=$(timeout 5 bento lint /etc/bento/streams.yaml 2>&1)
+        LINT_OUTPUT=$(timeout 5 bento lint /etc/bento/config.yaml /etc/bento/streams/*.yaml 2>&1)
         LINT_EXIT=$?
     else
-        LINT_OUTPUT=$(bento lint /etc/bento/streams.yaml 2>&1)
+        LINT_OUTPUT=$(bento lint /etc/bento/config.yaml /etc/bento/streams/*.yaml 2>&1)
         LINT_EXIT=$?
     fi
     set -e  # Re-enable exit on error
