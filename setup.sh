@@ -74,7 +74,8 @@ else
 fi
 
 # Extract server public key
-SERVER_PUBLIC_KEY=$(grep "^public key:" "$SERVER_AGE_KEY_FILE" | cut -d' ' -f4)
+# The public key is in a comment line like: # public key: age1...
+SERVER_PUBLIC_KEY=$(grep "^# public key:" "$SERVER_AGE_KEY_FILE" | cut -d' ' -f4)
 if [[ -z "$SERVER_PUBLIC_KEY" ]]; then
     echo -e "${RED}Error: Could not extract public key from server keypair${NC}" >&2
     exit 1
