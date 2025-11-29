@@ -75,7 +75,7 @@ async function fetchIndexTs(parsed: ParsedToolsRoot): Promise<string> {
 
   // Construct raw GitHub URL
   const pathPart = parsed.path ? `${parsed.path}/`.replace(/\/+$/, "") : "";
-  const rawUrl = `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${branch}/${pathPart}index.ts`;
+  const rawUrl = `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${branch}${pathPart ? `/${pathPart}` : ""}/index.ts`;
 
   console.log(`📥 Fetching index.ts from ${rawUrl}...`);
 
@@ -255,7 +255,7 @@ async function main() {
   const BASE_DOMAIN = process.env.BASE_DOMAIN || "";
   const S2_ACCESS_TOKEN = process.env.S2_ACCESS_TOKEN || "";
   const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
-  
+
   // S2_BASIN: if not set, derive from BASE_DOMAIN (replace dots with hyphens, lowercase)
   // S2 basin names must be lowercase letters, numbers, and hyphens only
   let S2_BASIN = process.env.S2_BASIN || "";

@@ -480,13 +480,21 @@ systemctl start bento-sync.timer > /dev/null 2>&1
 
 # Run initial sync
 echo -e "${BLUE}Running initial Bento tools sync...${NC}"
-BENTO_API_URL="http://localhost:4195" \
+if ! BENTO_API_URL="http://localhost:4195" \
 TOOLS_ROOT_GITHUB="${TOOLS_ROOT_GITHUB}" \
 S2_BASIN="${S2_BASIN}" \
 BASE_DOMAIN="${BASE_DOMAIN}" \
 S2_ACCESS_TOKEN="${S2_ACCESS_TOKEN}" \
 RESEND_API_KEY="${RESEND_API_KEY}" \
-bun /opt/bento-sync/sync.ts || echo -e "${YELLOW}Initial sync had issues, but continuing...${NC}"
+bun /opt/bento-sync/sync.ts; then
+    echo -e "${RED}Error: Initial Bento tools sync failed${NC}" >&2
+    echo -e "${RED}This is required for the system to function properly.${NC}" >&2
+    echo -e "${YELLOW}Check the error messages above and ensure:${NC}" >&2
+    echo -e "${YELLOW}  - TOOLS_ROOT_GITHUB is correct and accessible${NC}" >&2
+    echo -e "${YELLOW}  - Network connectivity is available${NC}" >&2
+    echo -e "${YELLOW}  - All required environment variables are set${NC}" >&2
+    exit 1
+fi
 
 echo -e "${GREEN}Bento Tools Sync Daemon configured.${NC}"
 
