@@ -5,6 +5,14 @@ input:
     auth_token: "${S2_ACCESS_TOKEN}"
     cache: s2_outbox_cache
 
+pipeline:
+  processors:
+    # S2 input may return data as string or parsed JSON
+    # Ensure it's properly formatted for http_client
+    - bloblang: |
+        # If data is a string, parse it as JSON; otherwise use as-is
+        root = if this.type() == "string" { this.parse_json() } else { this }
+
 output:
   http_client:
     url: https://api.resend.com/emails
