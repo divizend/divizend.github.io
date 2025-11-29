@@ -246,9 +246,9 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# Root configuration file (minimal - resources defined in stream files)
+# Root configuration file (minimal valid YAML object)
 cat <<EOF > /etc/bento/config.yaml
-# Root config for streams mode - resources are defined in stream files
+{}
 EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
