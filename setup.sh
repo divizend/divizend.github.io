@@ -346,32 +346,32 @@ output_resources:
     pipeline:
       processors:
         - bloblang: |
-        # Extract relevant fields from Resend Payload
-        let original_text = this.data.text | ""
-        let sender = this.data.from
-        let subject = this.data.subject
-        let recipient_email = this.data.to[0] | ""
+            # Extract relevant fields from Resend Payload
+            let original_text = this.data.text | ""
+            let sender = this.data.from
+            let subject = this.data.subject
+            let recipient_email = this.data.to[0] | ""
 
-        # Extract inbox name from recipient email (e.g., "reverser@domain.com" -> "reverser")
-        let inbox_name = \$recipient_email.split("@")[0] | ""
-        let sender_domain = "${BASE_DOMAIN}"
-        let sender_email = \$inbox_name + "@" + \$sender_domain
+            # Extract inbox name from recipient email (e.g., "reverser@domain.com" -> "reverser")
+            let inbox_name = \$recipient_email.split("@")[0] | ""
+            let sender_domain = "${BASE_DOMAIN}"
+            let sender_email = \$inbox_name + "@" + \$sender_domain
 
-        # Automatically determine receiver (original sender)
-        let receiver = \$sender
+            # Automatically determine receiver (original sender)
+            let receiver = \$sender
 
-        # Business Logic: Call tool function from TOOLS_ROOT/index.ts
-        # The tool function name matches the inbox name (e.g., inbox "reverser" calls "reverser" function)
-        # The tool definition at ${TOOLS_ROOT}/index.ts exports functions that match inbox names
-        # This bloblang implementation matches the tool function exactly
-        # For the "reverser" tool: reverser: (email: Email) => email.text!.split("").reverse().join("")
-        let transformed_text = \$original_text.split("").reverse().join("")
+            # Business Logic: Call tool function from TOOLS_ROOT/index.ts
+            # The tool function name matches the inbox name (e.g., inbox "reverser" calls "reverser" function)
+            # The tool definition at ${TOOLS_ROOT}/index.ts exports functions that match inbox names
+            # This bloblang implementation matches the tool function exactly
+            # For the "reverser" tool: reverser: (email: Email) => email.text!.split("").reverse().join("")
+            let transformed_text = \$original_text.split("").reverse().join("")
 
-        # Construct Resend API Payload with automatically determined emails
-        root.from = \$inbox_name.capitalize() + " <" + \$sender_email + ">"
-        root.to = [\$receiver]
-        root.subject = "Re: " + \$subject
-        root.html = "<p>Here is your transformed text:</p><blockquote>" + \$transformed_text + "</blockquote>"
+            # Construct Resend API Payload with automatically determined emails
+            root.from = \$inbox_name.capitalize() + " <" + \$sender_email + ">"
+            root.to = [\$receiver]
+            root.subject = "Re: " + \$subject
+            root.html = "<p>Here is your transformed text:</p><blockquote>" + \$transformed_text + "</blockquote>"
 
     output:
       resource: s2_outbox_writer
