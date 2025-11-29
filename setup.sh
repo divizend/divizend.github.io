@@ -765,36 +765,19 @@ test_tool() {
     echo -e "${GREEN}✓ Test email sent (ID: ${EMAIL_ID})${NC}"
     echo -e "${BLUE}Waiting for reply email with expected output '${EXPECTED_OUTPUT}'...${NC}"
     
-    # Wait for email delivery and processing
+    # Wait for email delivery and processing (5 seconds is enough for Resend within their systems)
     sleep 5
     
-    # Poll Resend API for the reply email
-    local MAX_WAIT_ATTEMPTS=30
-    local WAIT_ATTEMPT=0
-    local REPLY_FOUND=false
+    # Check Bento logs to confirm processing
+    local BENTO_LOGS
+    BENTO_LOGS=$(journalctl -u bento --since "10 seconds ago" --no-pager 2>/dev/null)
     
-    while [ "$WAIT_ATTEMPT" -lt "$MAX_WAIT_ATTEMPTS" ]; do
-        sleep 3
-        WAIT_ATTEMPT=$((WAIT_ATTEMPT + 1))
-        
-        # Check Resend API for emails sent to TEST_SENDER
-        # Note: This requires checking Resend's email logs/API
-        # For now, we'll check Bento logs to confirm processing
-        local BENTO_LOGS
-        BENTO_LOGS=$(journalctl -u bento --since "2 minutes ago" --no-pager 2>/dev/null)
-        
-        # Check if email was processed and sent
-        if echo "$BENTO_LOGS" | grep -qiE "(200|201).*resend|resend.*(200|201)|http.*200.*api.resend.com" > /dev/null 2>&1; then
-            echo -e "${GREEN}✓ Reply email sent via Resend API${NC}"
-            REPLY_FOUND=true
-            break
-        fi
-        
-        # Show progress
-        if [ $((WAIT_ATTEMPT % 5)) -eq 0 ]; then
-            echo -e "${BLUE}Still waiting for reply... (${WAIT_ATTEMPT}/${MAX_WAIT_ATTEMPTS})${NC}"
-        fi
-    done
+    # Check if email was processed and sent
+    local REPLY_FOUND=false
+    if echo "$BENTO_LOGS" | grep -qiE "(200|201).*resend|resend.*(200|201)|http.*200.*api.resend.com" > /dev/null 2>&1; then
+        echo -e "${GREEN}✓ Reply email sent via Resend API${NC}"
+        REPLY_FOUND=true
+    fi
     
     if [ "$REPLY_FOUND" = true ]; then
         echo -e "${GREEN}✓ Tool '${TOOL_NAME}' test passed: reply email sent successfully${NC}"
