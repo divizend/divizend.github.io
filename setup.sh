@@ -260,16 +260,10 @@ pipeline:
   processors:
     # Verify Svix signature for webhook authenticity
     - bloblang: |
-        # Extract Svix headers (case-insensitive)
-        # Bento http_server provides headers in meta.headers
-        # Headers are accessed via meta.headers which is a map
-        let svix_id = meta.headers.get("svix-id") | meta.headers.get("Svix-Id") | ""
-        let svix_timestamp = meta.headers.get("svix-timestamp") | meta.headers.get("Svix-Timestamp") | ""
-        let svix_signature = meta.headers.get("svix-signature") | meta.headers.get("Svix-Signature") | ""
-        
         # Bento http_server provides the body as the root content
         # The body is typically a string that needs parsing
         # Parse the JSON body and pass through
+        # TODO: Add Svix signature verification once header access is confirmed
         root = this.parse_json()
 
 output:
