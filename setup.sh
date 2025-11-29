@@ -275,10 +275,16 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# Convert domain to valid S2 basin name (replace dots with hyphens, lowercase)
+# S2 Basin Configuration
+# If S2_BASIN is not set, derive it from BASE_DOMAIN (replace dots with hyphens, lowercase)
 # S2 basin names must be lowercase letters, numbers, and hyphens only
 # For "divizend.ai", basin would be "divizend-ai"
-S2_BASIN=$(echo "${BASE_DOMAIN}" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+if [[ -z "$S2_BASIN" ]]; then
+    S2_BASIN=$(echo "${BASE_DOMAIN}" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+    echo -e "${BLUE}Derived S2_BASIN from BASE_DOMAIN: ${S2_BASIN}${NC}"
+else
+    echo -e "${GREEN}Using S2_BASIN from environment: ${S2_BASIN}${NC}"
+fi
 
 # Ensure S2 basin exists, create it if it doesn't
 echo -e "${BLUE}Ensuring S2 basin '${S2_BASIN}' exists...${NC}"
@@ -439,25 +445,20 @@ if [[ "$TOOLS_ROOT_GITHUB" =~ ^https://github\.com/([^/]+)/([^/]+)(/([^/]+))?(/(
         BRANCH="$DEFAULT_BRANCH"
     fi
     
-    # Construct raw GitHub URL for sync.sh
+    # Construct raw GitHub URL for sync.ts
     if [ -n "$PATH_PART" ]; then
         PATH_PART="${PATH_PART%/}"
-        SYNC_SCRIPT_URL="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${PATH_PART}/sync.sh"
+        SYNC_SCRIPT_URL="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${PATH_PART}/sync.ts"
     else
-        SYNC_SCRIPT_URL="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/sync.sh"
+        SYNC_SCRIPT_URL="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/sync.ts"
     fi
     
     echo -e "${BLUE}Downloading sync script from ${SYNC_SCRIPT_URL}...${NC}"
-    curl -fsSL "$SYNC_SCRIPT_URL" -o /opt/bento-sync/sync.sh || {
-        echo -e "${YELLOW}Warning: Could not download sync.sh from GitHub, creating minimal version...${NC}"
-        # Create a minimal sync script as fallback
-        cat > /opt/bento-sync/sync.sh <<'SYNC_EOF'
-#!/bin/bash
-set -e
-echo "Bento sync script - placeholder"
-SYNC_EOF
+    curl -fsSL "$SYNC_SCRIPT_URL" -o /opt/bento-sync/sync.ts || {
+        echo -e "${RED}Error: Could not download sync.ts from GitHub${NC}" >&2
+        exit 1
     }
-    chmod +x /opt/bento-sync/sync.sh
+    chmod +x /opt/bento-sync/sync.ts
 else
     echo -e "${RED}Error: Invalid TOOLS_ROOT_GITHUB format${NC}" >&2
     exit 1
@@ -476,7 +477,7 @@ S2_BASIN="${S2_BASIN}" \
 BASE_DOMAIN="${BASE_DOMAIN}" \
 S2_ACCESS_TOKEN="${S2_ACCESS_TOKEN}" \
 RESEND_API_KEY="${RESEND_API_KEY}" \
-/opt/bento-sync/sync.sh || echo -e "${YELLOW}Initial sync had issues, but continuing...${NC}"
+bun /opt/bento-sync/sync.ts || echo -e "${YELLOW}Initial sync had issues, but continuing...${NC}"
 
 echo -e "${GREEN}Bento Tools Sync Daemon configured.${NC}"
 

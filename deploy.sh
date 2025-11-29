@@ -35,8 +35,18 @@ SSH_CMD=""
 [[ -n "$TEST_INPUT_TEXT" ]] && SSH_CMD="${SSH_CMD}TEST_INPUT_TEXT=$(printf %q "$TEST_INPUT_TEXT") "
 [[ -n "$TEST_EXPECTED_OUTPUT" ]] && SSH_CMD="${SSH_CMD}TEST_EXPECTED_OUTPUT=$(printf %q "$TEST_EXPECTED_OUTPUT") "
 [[ -n "$TOOLS_ROOT_GITHUB" ]] && SSH_CMD="${SSH_CMD}TOOLS_ROOT_GITHUB=$(printf %q "$TOOLS_ROOT_GITHUB") "
+[[ -n "$S2_BASIN" ]] && SSH_CMD="${SSH_CMD}S2_BASIN=$(printf %q "$S2_BASIN") "
+
 if ssh -t root@${SERVER_IP} "${SSH_CMD}bash /tmp/setup.sh.local; EXIT_CODE=\$?; rm -rf /tmp/setup.sh.local /tmp/common.sh /tmp/templates; exit \$EXIT_CODE"; then
     echo "[INFO] Deployment complete."
+    
+    # Test sync script functionality
+    echo "[TEST] Testing sync script..."
+    if ssh root@${SERVER_IP} "cd /opt/bento-sync && BENTO_API_URL='http://localhost:4195' TOOLS_ROOT_GITHUB='${TOOLS_ROOT_GITHUB:-https://github.com/divizend/divizend.github.io/main/bentotools}' S2_BASIN='${S2_BASIN:-}' BASE_DOMAIN='${BASE_DOMAIN:-}' S2_ACCESS_TOKEN='${S2_ACCESS_TOKEN:-}' RESEND_API_KEY='${RESEND_API_KEY:-}' bun sync.ts 2>&1 | head -n 20"; then
+        echo "[INFO] Sync script test completed."
+    else
+        echo "[WARNING] Sync script test had issues, but deployment succeeded."
+    fi
 else
     echo "[ERROR] Deployment failed. The setup script on the server terminated with an error."
     exit 1

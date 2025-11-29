@@ -78,9 +78,9 @@ jobs:
         run: |
           echo "🔄 Syncing Bento streams from ${TOOLS_ROOT_GITHUB}..."
           
-          # Use the sync script
-          chmod +x bentotools/sync.sh
-          ./bentotools/sync.sh || {
+          # Use the TypeScript sync script
+          chmod +x bentotools/sync.ts
+          bun bentotools/sync.ts || {
             echo "⚠️ Sync script failed, but continuing..."
             exit 0
           }

@@ -7,12 +7,8 @@
  * - If an export is an object, it's treated as a Bento stream definition
  */
 
-import { readFileSync, writeFileSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// Import index.ts as a module (it's guaranteed to be a proper module)
+import * as module from "./index.ts";
 
 interface BentoStreamConfig {
   input: any;
@@ -24,28 +20,16 @@ interface ToolFunction {
   (email: any): string;
 }
 
-// Load and evaluate the index.ts file
-async function loadExports(): Promise<Record<string, any>> {
-  const indexPath = join(__dirname, "index.ts");
-  const code = readFileSync(indexPath, "utf-8");
-  
-  // Use dynamic import to get the exports
-  // Note: This requires the file to be a proper module
-  const module = await import(indexPath);
-  return module;
-}
-
 // Check if a value is a function
 function isFunction(value: any): value is ToolFunction {
   return typeof value === "function";
 }
 
 // Process exports and generate stream configurations
-async function compileStreams(): Promise<Map<string, BentoStreamConfig>> {
-  const exports = await loadExports();
+function compileStreams(): Map<string, BentoStreamConfig> {
   const streams = new Map<string, BentoStreamConfig>();
   
-  for (const [key, value] of Object.entries(exports)) {
+  for (const [key, value] of Object.entries(module)) {
     // Skip default export and non-stream exports
     if (key === "default" || key.startsWith("_")) {
       continue;
@@ -155,7 +139,7 @@ async function main() {
   console.log("🔧 Compiling TypeScript exports to Bento stream configurations...\n");
   
   try {
-    const streams = await compileStreams();
+    const streams = compileStreams();
     
     if (streams.size === 0) {
       console.error("❌ No stream definitions found in exports");
@@ -185,4 +169,3 @@ if (import.meta.main) {
 }
 
 export { compileStreams, streamToYAML };
-
