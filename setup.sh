@@ -288,10 +288,13 @@ if ! command -v s2 &> /dev/null; then
     
     # Ensure cargo bin is in PATH for s2 command check
     export PATH="$HOME/.cargo/bin:$PATH"
-    if command -v s2 &> /dev/null; then
+    # Check if s2 exists in cargo bin or system PATH
+    if command -v s2 &> /dev/null || [ -f "$HOME/.cargo/bin/s2" ]; then
         echo -e "${GREEN}S2 CLI installed successfully.${NC}"
+        # Use full path if needed
+        S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.cargo/bin/s2")
         # Configure S2 CLI with access token
-        s2 config set --access-token "${S2_ACCESS_TOKEN}" 2>/dev/null || true
+        "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" 2>/dev/null || true
     else
         echo -e "${RED}Error: S2 CLI not found after installation${NC}"
         exit 1
@@ -827,13 +830,17 @@ test_tool() {
         '{from: $from, to: [$to], subject: $subject, html: $html}')
     
     # Add payload to S2 outbox stream using S2 CLI
+    # Find s2 command (may be in cargo bin)
+    export PATH="$HOME/.cargo/bin:$PATH"
+    S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.cargo/bin/s2")
+    
     # S2 CLI syntax: echo <data> | s2 add <basin>/<stream> [--access-token <token>]
-    if ! echo "$RESEND_PAYLOAD" | s2 add "${BASE_DOMAIN}/outbox" --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1; then
+    if ! echo "$RESEND_PAYLOAD" | "$S2_CMD" add "${BASE_DOMAIN}/outbox" --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1; then
         # Try alternative syntax without --access-token flag (if configured via s2 config)
-        if ! echo "$RESEND_PAYLOAD" | s2 add "${BASE_DOMAIN}/outbox" >/dev/null 2>&1; then
+        if ! echo "$RESEND_PAYLOAD" | "$S2_CMD" add "${BASE_DOMAIN}/outbox" >/dev/null 2>&1; then
             echo -e "${RED}✗ Failed to add test email to S2 outbox stream${NC}"
             echo -e "${YELLOW}  Ensure S2 CLI is installed and configured: s2 config set --access-token <token>${NC}"
-            echo -e "${YELLOW}  Testing S2 CLI: s2 --help${NC}"
+            echo -e "${YELLOW}  Testing S2 CLI: $S2_CMD --help${NC}"
             return 1
         fi
     fi
