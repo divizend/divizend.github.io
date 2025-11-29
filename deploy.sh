@@ -22,6 +22,8 @@ echo "[DEPLOY] Running setup on server..."
 get_config_value SERVER_IP "Enter Server IP address" "SERVER_IP is required"
 scp setup.sh root@${SERVER_IP}:/tmp/setup.sh.local > /dev/null
 scp common.sh root@${SERVER_IP}:/tmp/common.sh > /dev/null
+# Copy templates directory
+scp -r templates root@${SERVER_IP}:/tmp/ > /dev/null
 # Pass environment variables if they exist in local .env
 SSH_CMD=""
 [[ -n "$BASE_DOMAIN" ]] && SSH_CMD="${SSH_CMD}BASE_DOMAIN=$(printf %q "$BASE_DOMAIN") "
@@ -33,5 +35,9 @@ SSH_CMD=""
 [[ -n "$TEST_INPUT_TEXT" ]] && SSH_CMD="${SSH_CMD}TEST_INPUT_TEXT=$(printf %q "$TEST_INPUT_TEXT") "
 [[ -n "$TEST_EXPECTED_OUTPUT" ]] && SSH_CMD="${SSH_CMD}TEST_EXPECTED_OUTPUT=$(printf %q "$TEST_EXPECTED_OUTPUT") "
 [[ -n "$TOOLS_ROOT" ]] && SSH_CMD="${SSH_CMD}TOOLS_ROOT=$(printf %q "$TOOLS_ROOT") "
-ssh -t root@${SERVER_IP} "${SSH_CMD}bash /tmp/setup.sh.local; rm /tmp/setup.sh.local /tmp/common.sh"
-echo "[INFO] Deployment complete."
+if ssh -t root@${SERVER_IP} "${SSH_CMD}bash /tmp/setup.sh.local; EXIT_CODE=\$?; rm -rf /tmp/setup.sh.local /tmp/common.sh /tmp/templates; exit \$EXIT_CODE"; then
+    echo "[INFO] Deployment complete."
+else
+    echo "[ERROR] Deployment failed. The setup script on the server terminated with an error."
+    exit 1
+fi

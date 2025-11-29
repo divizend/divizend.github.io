@@ -1,0 +1,16 @@
+[Unit]
+Description=Bento Stream Processor
+Documentation=https://warpstreamlabs.github.io/bento/
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/bento -c /etc/bento/config.yaml -r /etc/bento/resources.yaml streams /etc/bento/streams
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,17 @@
+input:
+  s2:
+    basin: ${S2_BASIN}
+    streams: outbox
+    auth_token: "${S2_ACCESS_TOKEN}"
+    cache: s2_outbox_cache
+
+output:
+  http_client:
+    url: https://api.resend.com/emails
+    verb: POST
+    headers:
+      Authorization: "Bearer ${RESEND_API_KEY}"
+      Content-Type: "application/json"
+    retries: 3
+    # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
+

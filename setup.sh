@@ -21,9 +21,20 @@ if [[ -f "${BASH_SOURCE[0]%/*}/common.sh" ]]; then
     source "${SCRIPT_DIR}/common.sh"
 elif [[ -f "/tmp/common.sh" ]]; then
     # Remote execution: use /tmp/common.sh
+    SCRIPT_DIR="/tmp"
     source "/tmp/common.sh"
 else
     echo "Error: common.sh not found" >&2
+    exit 1
+fi
+
+# Determine template directory
+if [[ -d "${SCRIPT_DIR}/templates" ]]; then
+    TEMPLATE_DIR="${SCRIPT_DIR}/templates"
+elif [[ -d "/tmp/templates" ]]; then
+    TEMPLATE_DIR="/tmp/templates"
+else
+    echo "Error: templates directory not found" >&2
     exit 1
 fi
 
@@ -94,17 +105,10 @@ fi
 # 5. Configure Caddy
 echo -e "${BLUE}Configuring Caddy for ${STREAM_DOMAIN}...${NC}"
 EXPECTED_CADDYFILE="/tmp/caddyfile.expected"
-cat <<EOF > "$EXPECTED_CADDYFILE"
-${STREAM_DOMAIN} {
-    # Route webhook requests to the correct Bento stream endpoint
-    # Bento streams mode prefixes paths with stream ID (e.g., /ingest_email/webhooks/resend)
-    handle_path /webhooks/resend {
-        reverse_proxy localhost:4195/ingest_email/webhooks/resend
-    }
-    # All other requests go to Bento root
-    reverse_proxy localhost:4195
-}
-EOF
+# Export STREAM_DOMAIN for envsubst
+export STREAM_DOMAIN
+# Use template file with variable substitution
+envsubst < "${TEMPLATE_DIR}/caddy/Caddyfile.template" > "$EXPECTED_CADDYFILE"
 
 # Check if Caddyfile needs updating (idempotent)
 CADDYFILE_CHANGED=false
@@ -379,133 +383,19 @@ else
     echo -e "${GREEN}S2 basin '${S2_BASIN}' already exists.${NC}"
 fi
 
-# In streams mode, config.yaml is minimal
-# Cache resources are defined in a separate file and loaded with -r flag
-cat <<EOF > /etc/bento/config.yaml
-{}
-EOF
+# Copy and process template files with variable substitution
+mkdir -p /etc/bento/streams
 
-# Create separate resources file for cache resources
-# These are loaded via -r flag in the systemd service
-cat <<EOF > /etc/bento/resources.yaml
-cache_resources:
-  - label: s2_inbox_cache
-    noop: {}
-  - label: s2_outbox_cache
-    noop: {}
-EOF
-
-# Stream 1: Ingest - Webhook -> S2 Inbox
-cat <<EOF > /etc/bento/streams/ingest_email.yaml
-input:
-  http_server:
-    path: /webhooks/resend
-    allowed_verbs: [POST]
-    timeout: 5s
-
-pipeline:
-  processors:
-    # Verify Svix signature for webhook authenticity
-    - bloblang: |
-        # Bento http_server provides the body as the root content
-        # Try to parse JSON if it's a string, otherwise use as-is
-        # TODO: Add Svix signature verification once header access is confirmed
-        root = if this.type() == "string" { this.parse_json() } else { this }
-
-output:
-  s2:
-    basin: ${S2_BASIN}
-    stream: 'inbox/\${!this.data.to[0].split("@")[0]}'
-    auth_token: "${S2_ACCESS_TOKEN}"
-EOF
-
-# Stream 2: Transform - S2 Inbox -> Apply Tool Logic from bentotools/index.ts -> S2 Outbox
-# Business logic is defined in ${TOOLS_ROOT}/index.ts
-# The inbox name is extracted from the email's "to" field, and the corresponding tool function is called
-cat <<EOF > /etc/bento/streams/transform_email.yaml
-input:
-  s2:
-    basin: ${S2_BASIN}
-    streams: inbox/
-    auth_token: "${S2_ACCESS_TOKEN}"
-    cache: s2_inbox_cache
-
-pipeline:
-  processors:
-    - bloblang: |
-        # Extract relevant fields from Resend Payload
-        let original_text = this.data.text | ""
-        let sender = this.data.from
-        let subject = this.data.subject
-        let recipient_email = this.data.to[0] | ""
-
-        # Extract inbox name from recipient email (e.g., "reverser@domain.com" -> "reverser")
-        let inbox_name = \$recipient_email.split("@")[0] | ""
-        let sender_domain = "${BASE_DOMAIN}"
-        let sender_email = \$inbox_name + "@" + \$sender_domain
-
-        # Automatically determine receiver (original sender)
-        let receiver = \$sender
-
-        # Business Logic: Call tool function from TOOLS_ROOT/index.ts
-        # The tool function name matches the inbox name (e.g., inbox "reverser" calls "reverser" function)
-        # The tool definition at ${TOOLS_ROOT}/index.ts exports functions that match inbox names
-        # This bloblang implementation matches the tool function exactly
-        # For the "reverser" tool: reverser: (email: Email) => email.text!.split("").reverse().join("")
-        let transformed_text = \$original_text.split("").reverse().join("")
-
-        # Construct Resend API Payload with automatically determined emails
-        root.from = \$inbox_name.capitalize() + " <" + \$sender_email + ">"
-        root.to = [\$receiver]
-        root.subject = "Re: " + \$subject
-        root.html = "<p>Here is your transformed text:</p><blockquote>" + \$transformed_text + "</blockquote>"
-
-output:
-  s2:
-    basin: ${S2_BASIN}
-    stream: outbox
-    auth_token: "${S2_ACCESS_TOKEN}"
-EOF
-
-# Stream 3: Send - S2 Outbox -> Resend API
-cat <<EOF > /etc/bento/streams/send_email.yaml
-input:
-  s2:
-    basin: ${S2_BASIN}
-    streams: outbox
-    auth_token: "${S2_ACCESS_TOKEN}"
-    cache: s2_outbox_cache
-
-output:
-  http_client:
-    url: https://api.resend.com/emails
-    verb: POST
-    headers:
-      Authorization: "Bearer ${RESEND_API_KEY}"
-      Content-Type: "application/json"
-    retries: 3
-    # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
-EOF
+# Process Bento config files
+envsubst < "${TEMPLATE_DIR}/bento/config.yaml" > /etc/bento/config.yaml
+envsubst < "${TEMPLATE_DIR}/bento/resources.yaml" > /etc/bento/resources.yaml
+envsubst < "${TEMPLATE_DIR}/bento/streams/ingest_email.yaml" > /etc/bento/streams/ingest_email.yaml
+envsubst < "${TEMPLATE_DIR}/bento/streams/transform_email.yaml" > /etc/bento/streams/transform_email.yaml
+envsubst < "${TEMPLATE_DIR}/bento/streams/send_email.yaml" > /etc/bento/streams/send_email.yaml
 
 # 8. Systemd Service Setup
 echo -e "${BLUE}Configuring Systemd service...${NC}"
-cat <<EOF > /etc/systemd/system/bento.service
-[Unit]
-Description=Bento Stream Processor
-Documentation=https://warpstreamlabs.github.io/bento/
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/bin/bento -c /etc/bento/config.yaml -r /etc/bento/resources.yaml streams /etc/bento/streams
-Restart=always
-RestartSec=5
-LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target
-EOF
+envsubst < "${TEMPLATE_DIR}/systemd/bento.service" > /etc/systemd/system/bento.service
 
 # 9. Install Terraform and Setup Bento Tools Sync Daemon
 echo -e "${BLUE}Setting up Bento Tools Sync Daemon...${NC}"
@@ -898,6 +788,10 @@ test_tool() {
         --arg subject "Re: ${TEST_SUBJECT}" \
         --arg html "<p>Here is your transformed text:</p><blockquote>${EXPECTED_OUTPUT}</blockquote>" \
         '{from: $from, to: [$to], subject: $subject, html: $html}')
+    
+    # Show what's being added to S2
+    echo -e "${BLUE}Adding to S2 outbox stream:${NC}"
+    echo "$RESEND_PAYLOAD" | jq . | sed 's/^/  /'
     
     # Add payload to S2 outbox stream using S2 CLI
     # Find s2 command (may be in ~/.s2/bin or system PATH)

@@ -11,15 +11,21 @@ if [[ -z "${GREEN:-}" ]]; then
 fi
 
 # Function to get config value from environment or prompt user
-# Usage: get_config_value VAR_NAME "Prompt message" "Error message if empty"
+# Usage: get_config_value VAR_NAME "Prompt message" "Error message if empty" [DEFAULT_VALUE]
+# If DEFAULT_VALUE is provided and variable is not set, it will be used instead of prompting/erroring
 get_config_value() {
     local var_name="$1"
     local prompt_msg="$2"
     local error_msg="$3"
+    local default_value="$4"
     local var_value="${!var_name}"
     
     if [[ -z "$var_value" ]]; then
-        if [ -t 0 ]; then # Check if stdin is a terminal
+        if [[ -n "$default_value" ]]; then
+            # Use default value if provided
+            var_value="$default_value"
+            echo -e "${GREEN}Using default ${var_name}: ${var_value}${NC}"
+        elif [ -t 0 ]; then # Check if stdin is a terminal
             read -p "$prompt_msg: " var_value < /dev/tty
             if [[ -z "$var_value" ]]; then
                 echo -e "${RED}${error_msg}${NC}" >&2

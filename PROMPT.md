@@ -14,3 +14,9 @@ My end goal is that I can send an email into Resend. These emails should then la
 8. Finally yet another handler in Bento should pick up that something new was added to `s2://mydomain/outbox` and call the Resend API to finally send out the reply
 
 Give me the complete source code of a single fully production-ready BASH script to be hosted at https://setup.divizend.com/setup.sh, including a smooth way for me to interactively provide you with the base domain I want to use (what's "mydomain.com" in the example above), S2_ACCESS_TOKEN, RESEND_API_KEY and RESEND_WEBHOOK_SECRET (for that last one, first output the endpoint I should use to set up the webhook within Resend before asking for me to input RESEND_WEBHOOK_SECRET) so that I can execute "curl -fsSL https://setup.divizend.com/setup.sh | bash" on a fresh vanilla Ubuntu server and it immediately just works. The server should be configured to use streams.mydomain.com as its domain, including HTTPS. There should be no traces of "Divizend" in the script. Also make sure that the script is idempotent
+
+
+
+
+
+Refactor setup.sh to identify all duplicated logic and refactor the core accordigly.

@@ -1,0 +1,20 @@
+[Unit]
+Description=Bento Tools Sync Daemon
+Documentation=https://setup.divizend.com
+After=network.target bento.service
+Requires=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bento-sync/terraform
+Environment="TOOLS_ROOT=${TOOLS_ROOT}"
+ExecStart=/opt/bento-sync/sync.sh
+Restart=on-failure
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

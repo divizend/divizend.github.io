@@ -1,0 +1,6 @@
+cache_resources:
+  - label: s2_inbox_cache
+    noop: {}
+  - label: s2_outbox_cache
+    noop: {}
+
