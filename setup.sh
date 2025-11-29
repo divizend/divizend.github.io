@@ -804,9 +804,6 @@ else
         # No test email sent, but setup is complete
         SETUP_SUCCESS=true
     fi
-else
-    # No domains detected, setup is complete
-    SETUP_SUCCESS=true
 fi
 
 # Show success message only at the very end if everything passed
