@@ -5,10 +5,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
-# Source .env if it exists (silently handle if it doesn't)
-[ -f .env ] && source .env
-
-# Get SERVER_IP using common function
+# Get SERVER_IP using common function (loads from secrets or prompts)
 get_config_value SERVER_IP "Enter Server IP address" "SERVER_IP is required"
 
 KNOWN_HOSTS_FILE="$HOME/.ssh/known_hosts"
