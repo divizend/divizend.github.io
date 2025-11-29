@@ -14,8 +14,18 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Source common functions
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/common.sh"
+# Handle both local execution and remote execution (when copied to /tmp)
+if [[ -f "${BASH_SOURCE[0]%/*}/common.sh" ]]; then
+    # Local execution: use script directory
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${SCRIPT_DIR}/common.sh"
+elif [[ -f "/tmp/common.sh" ]]; then
+    # Remote execution: use /tmp/common.sh
+    source "/tmp/common.sh"
+else
+    echo "Error: common.sh not found" >&2
+    exit 1
+fi
 
 
 echo -e "${BLUE}Starting Stream Processor Setup...${NC}"
