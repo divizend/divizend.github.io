@@ -266,46 +266,49 @@ pipeline:
   processors:
     # Verify Svix signature for webhook authenticity
     - bloblang: |
-        # Extract Svix headers
-        let svix_id = this.headers["svix-id"] | this.headers["Svix-Id"] | ""
-        let svix_timestamp = this.headers["svix-timestamp"] | this.headers["Svix-Timestamp"] | ""
-        let svix_signature = this.headers["svix-signature"] | this.headers["Svix-Signature"] | ""
+        # Extract Svix headers (case-insensitive)
+        let svix_id = this.headers.get("svix-id") | this.headers.get("Svix-Id") | ""
+        let svix_timestamp = this.headers.get("svix-timestamp") | this.headers.get("Svix-Timestamp") | ""
+        let svix_signature = this.headers.get("svix-signature") | this.headers.get("Svix-Signature") | ""
         
-        # Get raw body (as JSON string for signature verification)
-        let raw_body = this.content()
+        # Get raw body content (Bento http_server provides content as string/bytes)
+        let raw_body = this.content | this | string()
         
         # Construct signed payload: svix_id + "." + svix_timestamp + "." + body
         let signed_payload = \$svix_id + "." + \$svix_timestamp + "." + \$raw_body
         
-        # Compute HMAC-SHA256 signature
+        # Compute HMAC-SHA256 signature using crypto function
         let webhook_secret = "${RESEND_WEBHOOK_SECRET}"
-        let computed_signature = \$signed_payload.hmac_sha256(\$webhook_secret)
+        let computed_signature = crypto.hmac_sha256(\$webhook_secret, \$signed_payload)
         
-        # Verify signature matches (Svix uses format "v1,<signature>")
-        let signature_valid = \$svix_signature.contains(\$computed_signature)
+        # Svix signature format is "v1,<signature>" - extract the signature part
+        let expected_sig = "v1," + \$computed_signature
         
-        # Check timestamp to prevent replay attacks (within 5 minutes)
+        # Verify signature matches (Svix may include multiple signatures separated by spaces)
+        let signature_valid = \$svix_signature == \$expected_sig || \$svix_signature.contains(\$computed_signature)
+        
+        # Check timestamp to prevent replay attacks (within 5 minutes = 300 seconds)
         let current_timestamp = now().unix()
         let request_timestamp = \$svix_timestamp.number()
-        let timestamp_valid = (\$current_timestamp - \$request_timestamp).abs() < 300
+        let time_diff = (\$current_timestamp - \$request_timestamp).abs()
+        let timestamp_valid = \$time_diff < 300
         
-        # Reject if signature or timestamp invalid
-        if !\$signature_valid || !\$timestamp_valid {
-          root = deleted()
-          root.error = "Invalid webhook signature or timestamp"
+        # Validate required headers are present
+        let headers_present = \$svix_id != "" && \$svix_timestamp != "" && \$svix_signature != ""
+        
+        # Reject if validation fails
+        if !\$headers_present || !\$signature_valid || !\$timestamp_valid {
+          root.error = "Invalid webhook: signature=" + \$signature_valid.string() + " timestamp=" + \$timestamp_valid.string() + " headers=" + \$headers_present.string()
           root.status_code = 401
+          root = deleted()
         } else {
-          # Signature valid, pass through the payload
-          root = this
+          # Signature valid, parse and pass through the JSON payload
+          root = this.parse_json()
         }
     
     # Only process if signature was valid (not deleted)
     - filter:
         bloblang: 'this != deleted()'
-    
-    # Parse the validated JSON payload
-    - mapping: |
-        root = this.parse_json("content")
 
 output:
   resource: s2_inbox_writer
