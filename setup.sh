@@ -476,6 +476,15 @@ input:
     auth_token: "${S2_ACCESS_TOKEN}"
     cache: s2_outbox_cache
 
+pipeline:
+  processors:
+    # Ensure the message is properly formatted as JSON for http_client
+    # S2 input parses JSON, but http_client needs it serialized
+    - bloblang: |
+        # The data from S2 is already a parsed JSON object
+        # Just ensure it's structured correctly for Resend API
+        root = this
+
 output:
   http_client:
     url: https://api.resend.com/emails
