@@ -896,13 +896,31 @@ test_tool() {
     export PATH="$HOME/.s2/bin:$HOME/.cargo/bin:$PATH"
     S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
     
+    # Ensure access token is configured
+    "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1
+    
     # S2 CLI syntax: echo <data> | s2 append s2://<basin>/<stream>
     # Access token is configured via s2 config set, not as a flag
     # S2_BASIN is already defined earlier in the script (converted from BASE_DOMAIN)
-    if ! echo "$RESEND_PAYLOAD" | "$S2_CMD" append "s2://${S2_BASIN}/outbox" >/dev/null 2>&1; then
+    # Temporarily disable exit on error for test
+    set +e
+    APPEND_OUTPUT=$(echo "$RESEND_PAYLOAD" | "$S2_CMD" append "s2://${S2_BASIN}/outbox" 2>&1)
+    APPEND_EXIT=$?
+    set -e
+    
+    if [ $APPEND_EXIT -ne 0 ]; then
         echo -e "${RED}✗ Failed to add test email to S2 outbox stream${NC}"
-        echo -e "${YELLOW}  Ensure S2 CLI is installed and configured: s2 config set --access-token <token>${NC}"
-        echo -e "${YELLOW}  Testing S2 CLI: $S2_CMD append s2://${S2_BASIN}/outbox < /dev/null${NC}"
+        echo -e "${YELLOW}Error output:${NC}"
+        echo "$APPEND_OUTPUT" | sed 's/^/  /'
+        
+        # Check if it's a basin/stream not found error or permission error
+        if echo "$APPEND_OUTPUT" | grep -qiE "basin.*not found|stream.*not found|not authorized|permission|Basin not authorized"; then
+            echo -e "${YELLOW}  This may be because the basin '${S2_BASIN}' doesn't exist yet.${NC}"
+            echo -e "${YELLOW}  The basin creation failed earlier due to permission issues (a bug).${NC}"
+            echo -e "${YELLOW}  Please create the basin manually: s2 create-basin ${S2_BASIN}${NC}"
+        else
+            echo -e "${YELLOW}  Ensure S2 CLI is installed and configured: s2 config set --access-token <token>${NC}"
+        fi
         return 1
     fi
     echo -e "${GREEN}✓ Test email added to S2 outbox stream${NC}"
