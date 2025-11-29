@@ -243,14 +243,9 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# In streams mode, config.yaml defines cache resources for S2 inputs
-# Cache resources are required for S2 inputs to track sequence numbers
+# In streams mode, config.yaml is minimal - cache resources are defined inline in stream files
 cat <<EOF > /etc/bento/config.yaml
-cache_resources:
-  - label: s2_inbox_cache
-    noop: {}
-  - label: s2_outbox_cache
-    noop: {}
+{}
 EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
@@ -281,6 +276,10 @@ EOF
 # Business logic is defined in ${TOOLS_ROOT}/index.ts
 # The inbox name is extracted from the email's "to" field, and the corresponding tool function is called
 cat <<EOF > /etc/bento/streams/transform_email.yaml
+cache_resources:
+  - label: s2_inbox_cache
+    noop: {}
+
 input:
   s2:
     basin: ${BASE_DOMAIN}
@@ -327,6 +326,10 @@ EOF
 
 # Stream 3: Send - S2 Outbox -> Resend API
 cat <<EOF > /etc/bento/streams/send_email.yaml
+cache_resources:
+  - label: s2_outbox_cache
+    noop: {}
+
 input:
   s2:
     basin: ${BASE_DOMAIN}
