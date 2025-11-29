@@ -271,8 +271,9 @@ pipeline:
         let svix_timestamp = this.headers.get("svix-timestamp") | this.headers.get("Svix-Timestamp") | ""
         let svix_signature = this.headers.get("svix-signature") | this.headers.get("Svix-Signature") | ""
         
-        # Get raw body content (Bento http_server provides content as string/bytes)
-        let raw_body = this.content | this | string()
+        # Get raw body content (Bento http_server provides content directly)
+        # The http_server input provides the body as 'content' field or as the root itself
+        let raw_body = this.content | this | ""
         
         # Construct signed payload: svix_id + "." + svix_timestamp + "." + body
         let signed_payload = \$svix_id + "." + \$svix_timestamp + "." + \$raw_body
