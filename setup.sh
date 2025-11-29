@@ -1,9 +1,6 @@
 #!/bin/bash
 set -e
 
-echo "This is just a test!"
-exit
-
 # ==============================================================================
 # Automated Message Stream Processor Setup
 # Stack: Resend (Email) + S2 (Stream Store) + Bento (Processor)
