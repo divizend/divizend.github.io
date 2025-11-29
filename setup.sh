@@ -825,9 +825,9 @@ test_tool() {
         '{from: $from, to: [$to], subject: $subject, html: $html}')
     
     # Add payload to S2 outbox stream using S2 CLI
-    # Find s2 command (may be in cargo bin)
-    export PATH="$HOME/.cargo/bin:$PATH"
-    S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.cargo/bin/s2")
+    # Find s2 command (may be in ~/.s2/bin or system PATH)
+    export PATH="$HOME/.s2/bin:$HOME/.cargo/bin:$PATH"
+    S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
     
     # S2 CLI syntax: echo <data> | s2 add <basin>/<stream> [--access-token <token>]
     if ! echo "$RESEND_PAYLOAD" | "$S2_CMD" add "${BASE_DOMAIN}/outbox" --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1; then
