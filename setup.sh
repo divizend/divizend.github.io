@@ -176,7 +176,13 @@ if ! command -v bento &> /dev/null; then
     INSTALL_SUCCESS=false
     
     while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$INSTALL_SUCCESS" = false ]; do
-        CURL_OUTPUT=$(curl -Lf --max-time 30 -w "\n%{http_code}" https://github.com/warpstreamlabs/bento/releases/latest/download/bento-linux-amd64.tar.gz -o "$BENTO_TMP" 2>&1)
+        # Try to get the actual download URL from GitHub API
+        BENTO_URL=$(curl -sf --max-time 10 https://api.github.com/repos/warpstreamlabs/bento/releases/latest 2>/dev/null | grep -o 'https://[^"]*bento[^"]*linux[^"]*amd64[^"]*\.tar\.gz' | head -n1)
+        if [ -z "$BENTO_URL" ]; then
+            # Fallback to direct URL
+            BENTO_URL="https://github.com/warpstreamlabs/bento/releases/latest/download/bento-linux-amd64.tar.gz"
+        fi
+        CURL_OUTPUT=$(curl -Lf --max-time 30 -w "\n%{http_code}" "$BENTO_URL" -o "$BENTO_TMP" 2>&1)
         CURL_EXIT=$?
         HTTP_CODE=$(echo "$CURL_OUTPUT" | tail -n1)
         
