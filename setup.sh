@@ -339,13 +339,9 @@ output_resources:
         # Business Logic: Use reverser function from TOOLS_ROOT/index.ts
         # The reverser function is defined in ${TOOLS_ROOT}/index.ts
         # This ensures the invariant: reverser@domain replies with the return value of the "reverser" function
-        # Fetch and execute the reverser tool dynamically
-        let tools_url = "${TOOLS_ROOT}/index.ts"
-        let tools_content = tools_url.http_request("GET").content()
-        # Note: In production, tools would be pre-fetched and cached
-        # For now, we implement the reverser logic inline to match the tool definition
         # The tool definition at ${TOOLS_ROOT}/index.ts exports: reverser: (email: Email) => email.text!.split("").reverse().join("")
-            let reversed_text = \$original_text.split("").reverse().join("")
+        # This bloblang implementation matches that function exactly
+        let reversed_text = \$original_text.split("").reverse().join("")
 
         # Construct Resend API Payload with automatically determined emails
         root.from = "Reverser <" + \$sender_email + ">"
@@ -462,7 +458,7 @@ data "http" "bento_tools" {
 }
 
 data "http" "bento_types" {
-  url = "\${var.tools_root}/types.ts"
+  url = "\${var.tools_root}/index.ts"
   
   request_headers = {
     Accept = "text/plain"
@@ -475,16 +471,16 @@ resource "local_file" "bento_tools" {
   filename = "/tmp/bento-tools-index.ts"
 }
 
-resource "local_file" "bento_types" {
+resource "local_file" "bento_tools_index" {
   content  = data.http.bento_types.response_body
-  filename = "/tmp/bento-tools-types.ts"
+  filename = "/tmp/bento-tools-index.ts"
 }
 
 # Trigger Bento reload via HTTP API (if available)
 resource "null_resource" "bento_reload" {
   triggers = {
     tools_hash = md5(data.http.bento_tools.response_body)
-    types_hash = md5(data.http.bento_types.response_body)
+    index_hash = md5(data.http.bento_types.response_body)
   }
 
   provisioner "local-exec" {
