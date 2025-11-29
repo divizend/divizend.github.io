@@ -274,8 +274,11 @@ if ! command -v s2 &> /dev/null; then
             apt-get update -qq && apt-get install -y build-essential >/dev/null 2>&1
         fi
         
+        export PATH="$HOME/.cargo/bin:$PATH"
         if cargo install s2 --quiet 2>/dev/null; then
             echo -e "${GREEN}S2 CLI installed via cargo.${NC}"
+            # Ensure cargo bin is in PATH
+            export PATH="$HOME/.cargo/bin:$PATH"
         else
             echo -e "${RED}Error: S2 CLI installation failed.${NC}"
             echo -e "${YELLOW}You may need to install it manually from: https://s2.dev/docs/quickstart${NC}"
@@ -283,6 +286,8 @@ if ! command -v s2 &> /dev/null; then
         fi
     fi
     
+    # Ensure cargo bin is in PATH for s2 command check
+    export PATH="$HOME/.cargo/bin:$PATH"
     if command -v s2 &> /dev/null; then
         echo -e "${GREEN}S2 CLI installed successfully.${NC}"
         # Configure S2 CLI with access token
