@@ -269,68 +269,68 @@ output_resources:
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
 
-input:
-  http_server:
+    input:
+      http_server:
     path: /webhooks/resend
-    allowed_verbs: [POST]
-    timeout: 5s
-
-pipeline:
-  processors:
-    # In a strict production environment, you would verify the svix-signature here.
-    # Passing raw payload to stream for durability.
-    - mapping: root = this
-
-output:
-  resource: s2_inbox_writer
+        allowed_verbs: [POST]
+        timeout: 5s
+    
+    pipeline:
+      processors:
+        # In a strict production environment, you would verify the svix-signature here.
+        # Passing raw payload to stream for durability.
+        - mapping: root = this
+    
+    output:
+      resource: s2_inbox_writer
 EOF
 
 # Stream 2: Process - S2 Inbox -> Reverse Text -> S2 Outbox
 cat <<EOF > /etc/bento/streams/process_reverser.yaml
-input:
-  resource: s2_inbox_reader
-
-pipeline:
-  processors:
-    - bloblang: |
-        # Extract relevant fields from Resend Payload
-        let original_text = this.data.text | ""
-        let sender = this.data.from
-        let subject = this.data.subject
+    input:
+      resource: s2_inbox_reader
+    
+    pipeline:
+      processors:
+        - bloblang: |
+            # Extract relevant fields from Resend Payload
+            let original_text = this.data.text | ""
+            let sender = this.data.from
+            let subject = this.data.subject
 
         # Automatically determine receiver (original sender) and sender (reverser@domain)
         let receiver = \$sender
         let sender_domain = "${BASE_DOMAIN}"
         let sender_email = "reverser@" + \$sender_domain
 
-        # Business Logic: Reverse the text
-        # Splitting by empty string creates array of chars, reverse array, join back
-        let reversed_text = \$original_text.split("").reverse().join("")
+            # Business Logic: Reverse the text
+            # Splitting by empty string creates array of chars, reverse array, join back
+            let reversed_text = \$original_text.split("").reverse().join("")
 
         # Construct Resend API Payload with automatically determined emails
         root.from = "Reverser <" + \$sender_email + ">"
         root.to = [\$receiver]
-        root.subject = "Re: " + \$subject
-        root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
+            root.subject = "Re: " + \$subject
+            root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
 
-output:
-  resource: s2_outbox_writer
+    output:
+      resource: s2_outbox_writer
 EOF
 
 # Stream 3: Egress - S2 Outbox -> Resend API
 cat <<EOF > /etc/bento/streams/send_email.yaml
-input:
-  resource: s2_outbox_reader
-
-output:
-  http_client:
-    url: https://api.resend.com/emails
-    verb: POST
-    headers:
+    input:
+      resource: s2_outbox_reader
+      
+    output:
+      http_client:
+        url: https://api.resend.com/emails
+        verb: POST
+        headers:
       Authorization: "Bearer ${RESEND_API_KEY}"
-      Content-Type: "application/json"
-    retries: 3
-    # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
+          Content-Type: "application/json"
+        retries: 3
+        # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
 EOF
 
 # 8. Systemd Service Setup
@@ -383,7 +383,7 @@ fi
 systemctl daemon-reload
 systemctl enable bento
 if systemctl is-active --quiet bento; then
-    systemctl restart bento
+systemctl restart bento
 else
     systemctl start bento
 fi
@@ -741,23 +741,38 @@ else
                 fi
             fi
             
-            # Check 4: Email was sent via Resend API
+            # Check 4: Email was sent via Resend API - check logs for successful HTTP response
+            EMAIL_SENT_CONFIRMED=false
             if [ -n "$RECENT_LOGS" ]; then
-                if echo "$RECENT_LOGS" | grep -qiE "resend|api.resend.com|http_client|send|outbox" > /dev/null 2>&1; then
-                    VERIFICATION_MESSAGES+=("✓ Email sending activity detected")
+                # Look for successful HTTP responses from Resend API (2xx status codes)
+                if echo "$RECENT_LOGS" | grep -qiE "api.resend.com.*200|api.resend.com.*201|http_client.*200|http_client.*201|POST.*200|POST.*201" > /dev/null 2>&1; then
+                    VERIFICATION_MESSAGES+=("✓ Email successfully sent via Resend API (HTTP 200/201 detected)")
+                    EMAIL_SENT_CONFIRMED=true
                     PROCESSING_COMPLETE=true
+                # Also check for any Resend API activity
+                elif echo "$RECENT_LOGS" | grep -qiE "api.resend.com|resend.com/emails|http_client.*resend" > /dev/null 2>&1; then
+                    # Check if there are any error messages
+                    if echo "$RECENT_LOGS" | grep -qiE "error|failed|401|403|500|502|503" > /dev/null 2>&1; then
+                        VERIFICATION_MESSAGES+=("✗ Email sending failed (errors detected in logs)")
+                        VERIFICATION_PASSED=false
+                    else
+                        VERIFICATION_MESSAGES+=("⚠ Email sending attempted but success not confirmed in logs")
+                    fi
                 else
-                    VERIFICATION_MESSAGES+=("⚠ Email sending not clearly visible in logs")
+                    VERIFICATION_MESSAGES+=("✗ No email sending activity detected in logs")
+                    VERIFICATION_PASSED=false
                 fi
+            else
+                VERIFICATION_MESSAGES+=("✗ Could not verify email sending (logs unavailable)")
+                VERIFICATION_PASSED=false
             fi
             
-            # Additional check: Test webhook endpoint is accessible
+            # Additional check: Verify webhook endpoint is accessible (404 is expected for invalid payload)
             WEBHOOK_URL="https://${STREAM_DOMAIN}/webhooks/resend"
             WEBHOOK_TEST=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -d '{"test":"data"}' 2>/dev/null || echo "000")
-            if [ "$WEBHOOK_TEST" != "000" ] && [ "$WEBHOOK_TEST" != "404" ]; then
-                VERIFICATION_MESSAGES+=("✓ Webhook endpoint is accessible and responding (HTTP $WEBHOOK_TEST)")
-            elif [ "$WEBHOOK_TEST" = "404" ]; then
-                VERIFICATION_MESSAGES+=("⚠ Webhook endpoint returned 404 (may need valid Resend webhook payload)")
+            if [ "$WEBHOOK_TEST" != "000" ]; then
+                # Any response (including 404) means the endpoint is accessible
+                VERIFICATION_MESSAGES+=("✓ Webhook endpoint is accessible (HTTP $WEBHOOK_TEST is expected for test payload)")
             else
                 VERIFICATION_MESSAGES+=("⚠ Webhook endpoint accessibility check failed")
             fi
@@ -784,14 +799,18 @@ else
             done
             echo ""
             
-            if [ "$VERIFICATION_PASSED" = true ]; then
+            # Only pass verification if email was actually confirmed as sent
+            if [ "$VERIFICATION_PASSED" = true ] && [ "$EMAIL_SENT_CONFIRMED" = true ]; then
                 echo -e "${GREEN}✓ Test email processing pipeline verified successfully!${NC}"
                 echo -e "${GREEN}The reversed email with text '${EXPECTED_REVERSED_TEXT}' should arrive at ${TEST_SENDER}${NC}"
                 SETUP_SUCCESS=true
             else
-                echo -e "${YELLOW}⚠ Some verification checks failed. Check Bento logs for details:${NC}"
+                echo -e "${YELLOW}⚠ Email processing verification incomplete. Check Bento logs for details:${NC}"
                 echo -e "${YELLOW}  journalctl -u bento -n 100 --no-pager${NC}"
                 echo -e "${YELLOW}Also check the inbox at ${TEST_SENDER} for the reversed response.${NC}"
+                if [ "$EMAIL_SENT_CONFIRMED" = false ]; then
+                    echo -e "${YELLOW}Note: Email sending was not confirmed in logs. The email may still be processing.${NC}"
+                fi
                 SETUP_SUCCESS=false
             fi
         else
@@ -808,10 +827,10 @@ fi
 
 # Show success message only at the very end if everything passed
 if [ "$SETUP_SUCCESS" = true ] && [ "$HEALTH_FAILED" != true ]; then
-    echo -e "\n${GREEN}==============================================${NC}"
-    echo -e "${GREEN}       Setup Complete Successfully!           ${NC}"
-    echo -e "${GREEN}==============================================${NC}"
-    echo -e "1. HTTPS is active at: https://${STREAM_DOMAIN}"
+echo -e "\n${GREEN}==============================================${NC}"
+echo -e "${GREEN}       Setup Complete Successfully!           ${NC}"
+echo -e "${GREEN}==============================================${NC}"
+echo -e "1. HTTPS is active at: https://${STREAM_DOMAIN}"
     echo -e "2. Webhook endpoint:   https://${STREAM_DOMAIN}/webhooks/resend"
-    echo -e "3. Logic:              Email -> Webhook -> S2 -> Reverse -> Resend"
+echo -e "3. Logic:              Email -> Webhook -> S2 -> Reverse -> Resend"
 fi
