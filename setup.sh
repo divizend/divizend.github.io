@@ -692,6 +692,59 @@ while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
         # Check if it's actually listening on the port
         if ss -tuln | grep -q ':4195 '; then
             echo -e "${GREEN}Bento is running and listening on port 4195${NC}"
+            
+            # Trigger GitHub Actions sync by pushing to bentotools (if GITHUB_PAT is set)
+            if [[ -n "$GITHUB_PAT" ]] && [[ -n "$TOOLS_ROOT_GITHUB" ]]; then
+                # Parse TOOLS_ROOT_GITHUB to extract repo info
+                if [[ "$TOOLS_ROOT_GITHUB" =~ ^https://github\.com/([^/]+)/([^/]+)(/([^/]+))?(/(.*))?$ ]]; then
+                    OWNER="${BASH_REMATCH[1]}"
+                    REPO="${BASH_REMATCH[2]}"
+                    BRANCH="${BASH_REMATCH[4]}"
+                    PATH_PART="${BASH_REMATCH[6]}"
+                    
+                    # Get default branch if not specified
+                    if [ -z "$BRANCH" ]; then
+                        DEFAULT_BRANCH=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}" | grep -o '"default_branch":"[^"]*' | cut -d'"' -f4 || echo "main")
+                        BRANCH="$DEFAULT_BRANCH"
+                    fi
+                    
+                    echo -e "${BLUE}Triggering GitHub Actions sync by pushing to bentotools...${NC}"
+                    
+                    # Create a temporary file in bentotools to trigger the workflow
+                    TEMP_FILE="/tmp/bento-sync-trigger-$(date +%s).txt"
+                    echo "# Sync trigger $(date -Iseconds)" > "$TEMP_FILE"
+                    
+                    # Clone the repo, add the file, commit, and push
+                    TEMP_REPO_DIR=$(mktemp -d)
+                    if git clone "https://${GITHUB_PAT}@github.com/${OWNER}/${REPO}.git" -b "${BRANCH}" "$TEMP_REPO_DIR" 2>/dev/null; then
+                        cd "$TEMP_REPO_DIR"
+                        
+                        # Determine the path to bentotools
+                        if [ -n "$PATH_PART" ]; then
+                            BENTOTOOLS_DIR="${PATH_PART%/}"
+                        else
+                            BENTOTOOLS_DIR="bentotools"
+                        fi
+                        
+                        mkdir -p "$BENTOTOOLS_DIR"
+                        cp "$TEMP_FILE" "${BENTOTOOLS_DIR}/.sync-trigger"
+                        git add "${BENTOTOOLS_DIR}/.sync-trigger"
+                        git -c user.name="Bento Sync" -c user.email="bento@divizend.com" commit -m "Trigger Bento sync [skip ci]" 2>/dev/null || true
+                        git push "https://${GITHUB_PAT}@github.com/${OWNER}/${REPO}.git" "${BRANCH}" 2>/dev/null || {
+                            echo -e "${YELLOW}⚠ Could not push to trigger sync (this is non-fatal)${NC}"
+                        }
+                        
+                        cd /
+                        rm -rf "$TEMP_REPO_DIR"
+                        rm -f "$TEMP_FILE"
+                        echo -e "${GREEN}✓ GitHub Actions sync triggered${NC}"
+                    else
+                        echo -e "${YELLOW}⚠ Could not clone repo to trigger sync (this is non-fatal)${NC}"
+                        rm -f "$TEMP_FILE"
+                    fi
+                fi
+            fi
+            
             break
         fi
     fi
