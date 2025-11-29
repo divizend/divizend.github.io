@@ -860,9 +860,12 @@ test_tool() {
     # Ensure the outbox stream exists (create it if it doesn't)
     # Don't delete it - just ensure it exists to avoid "stream is being deleted" errors
     set +e
-    "$S2_CMD" create-stream "s2://${S2_BASIN}/outbox" >/dev/null 2>&1
-    # Wait a moment to ensure stream is ready
-    sleep 1
+    # Check if stream exists, if not create it
+    if ! "$S2_CMD" list-streams "s2://${S2_BASIN}" 2>/dev/null | grep -q "^s2://${S2_BASIN}/outbox"; then
+        echo -e "${BLUE}Creating outbox stream...${NC}"
+        "$S2_CMD" create-stream "s2://${S2_BASIN}/outbox" >/dev/null 2>&1
+        sleep 2
+    fi
     set -e
     
     # S2 CLI syntax: echo <data> | s2 append s2://<basin>/<stream>
