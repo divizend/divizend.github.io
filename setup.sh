@@ -397,22 +397,22 @@ EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
 cat <<EOF > /etc/bento/streams/ingest_email.yaml
-    input:
-      http_server:
+input:
+  http_server:
     path: /webhooks/resend
-        allowed_verbs: [POST]
-        timeout: 5s
-    
-    pipeline:
-      processors:
+    allowed_verbs: [POST]
+    timeout: 5s
+
+pipeline:
+  processors:
     # Verify Svix signature for webhook authenticity
     - bloblang: |
         # Bento http_server provides the body as the root content
         # Try to parse JSON if it's a string, otherwise use as-is
         # TODO: Add Svix signature verification once header access is confirmed
         root = if this.type() == "string" { this.parse_json() } else { this }
-    
-    output:
+
+output:
   s2:
     basin: ${S2_BASIN}
     stream: 'inbox/\${!this.data.to[0].split("@")[0]}'
@@ -423,20 +423,20 @@ EOF
 # Business logic is defined in ${TOOLS_ROOT}/index.ts
 # The inbox name is extracted from the email's "to" field, and the corresponding tool function is called
 cat <<EOF > /etc/bento/streams/transform_email.yaml
-    input:
+input:
   s2:
     basin: ${S2_BASIN}
     streams: inbox/
     auth_token: "${S2_ACCESS_TOKEN}"
     cache: s2_inbox_cache
-    
-    pipeline:
-      processors:
-        - bloblang: |
-            # Extract relevant fields from Resend Payload
-            let original_text = this.data.text | ""
-            let sender = this.data.from
-            let subject = this.data.subject
+
+pipeline:
+  processors:
+    - bloblang: |
+        # Extract relevant fields from Resend Payload
+        let original_text = this.data.text | ""
+        let sender = this.data.from
+        let subject = this.data.subject
         let recipient_email = this.data.to[0] | ""
 
         # Extract inbox name from recipient email (e.g., "reverser@domain.com" -> "reverser")
@@ -457,10 +457,10 @@ cat <<EOF > /etc/bento/streams/transform_email.yaml
         # Construct Resend API Payload with automatically determined emails
         root.from = \$inbox_name.capitalize() + " <" + \$sender_email + ">"
         root.to = [\$receiver]
-            root.subject = "Re: " + \$subject
+        root.subject = "Re: " + \$subject
         root.html = "<p>Here is your transformed text:</p><blockquote>" + \$transformed_text + "</blockquote>"
 
-    output:
+output:
   s2:
     basin: ${S2_BASIN}
     stream: outbox
