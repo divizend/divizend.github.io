@@ -82,6 +82,13 @@ get_config_value S2_ACCESS_TOKEN "Enter S2 Access Token" "S2 Token is required."
 # Resend API Key
 get_config_value RESEND_API_KEY "Enter Resend API Key (starts with re_)" "Resend API Key is required."
 
+# Tools Root Configuration
+get_config_value TOOLS_ROOT "Enter Tools Root URL (default: https://setup.divizend.com/bentotools)" "Tools Root URL is required."
+if [[ -z "$TOOLS_ROOT" ]]; then
+    TOOLS_ROOT="https://setup.divizend.com/bentotools"
+    echo -e "${GREEN}Using default TOOLS_ROOT: ${TOOLS_ROOT}${NC}"
+fi
+
 # Webhook Setup Step
 WEBHOOK_URL="https://${STREAM_DOMAIN}/webhooks/resend"
 
@@ -391,7 +398,174 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOF
 
-# 9. Start Services
+# 9. Install Terraform and Setup Bento Tools Sync Daemon
+echo -e "${BLUE}Setting up Bento Tools Sync Daemon...${NC}"
+
+# Install Terraform if not present
+if ! command -v terraform &> /dev/null; then
+    echo -e "${BLUE}Installing Terraform...${NC}"
+    TERRAFORM_VERSION="1.6.0"
+    TERRAFORM_ZIP="terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+    curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/${TERRAFORM_ZIP}" -o /tmp/${TERRAFORM_ZIP}
+    unzip -q -o /tmp/${TERRAFORM_ZIP} -d /usr/local/bin/
+    rm -f /tmp/${TERRAFORM_ZIP}
+    chmod +x /usr/local/bin/terraform
+    echo -e "${GREEN}Terraform installed.${NC}"
+else
+    echo -e "${GREEN}Terraform is already installed.${NC}"
+fi
+
+# Create directory for Terraform daemon
+mkdir -p /opt/bento-sync
+mkdir -p /opt/bento-sync/terraform
+
+# Create Terraform configuration for Bento tools sync
+cat <<TFEOF > /opt/bento-sync/terraform/main.tf
+terraform {
+  required_version = ">= 1.0"
+  required_providers {
+    http = {
+      source  = "hashicorp/http"
+      version = "~> 3.0"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
+  }
+}
+
+variable "tools_root" {
+  description = "Root URL for Bento tools"
+  type        = string
+  default     = "https://setup.divizend.com/bentotools"
+}
+
+# Data source to fetch tools from remote URL
+data "http" "bento_tools" {
+  url = "\${var.tools_root}/index.ts"
+  
+  request_headers = {
+    Accept = "application/typescript"
+  }
+}
+
+data "http" "bento_types" {
+  url = "\${var.tools_root}/types.ts"
+  
+  request_headers = {
+    Accept = "application/typescript"
+  }
+}
+
+# Local file to store fetched tools
+resource "local_file" "bento_tools" {
+  content  = data.http.bento_tools.response_body
+  filename = "/tmp/bento-tools-index.ts"
+}
+
+resource "local_file" "bento_types" {
+  content  = data.http.bento_types.response_body
+  filename = "/tmp/bento-tools-types.ts"
+}
+
+# Trigger Bento reload via HTTP API (if available)
+resource "null_resource" "bento_reload" {
+  triggers = {
+    tools_hash = md5(data.http.bento_tools.response_body)
+    types_hash = md5(data.http.bento_types.response_body)
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Try to trigger Bento reload via API
+      curl -f -s -X POST "http://localhost:4195/admin/reload-tools" \\
+        -H "Content-Type: application/json" \\
+        -d "{\\"tools_root\\": \\"\${var.tools_root}\\"}" \\
+        || systemctl reload bento || true
+    EOT
+  }
+}
+TFEOF
+
+# Create sync daemon script
+cat <<SYNC_SCRIPT > /opt/bento-sync/sync.sh
+#!/bin/bash
+set -e
+
+cd /opt/bento-sync/terraform
+
+# Get TOOLS_ROOT from environment or use default
+TOOLS_ROOT="${TOOLS_ROOT:-https://setup.divizend.com/bentotools}"
+
+# Initialize Terraform if needed
+if [ ! -d ".terraform" ]; then
+    terraform init -upgrade
+fi
+
+# Apply Terraform configuration to sync tools
+terraform apply -auto-approve -refresh=true -var="tools_root=${TOOLS_ROOT}"
+
+# Log the sync
+echo "\$(date): Bento tools synced from \${TOOLS_ROOT}" >> /var/log/bento-sync.log
+SYNC_SCRIPT
+
+chmod +x /opt/bento-sync/sync.sh
+
+# Create systemd service for Bento tools sync daemon
+cat <<EOF > /etc/systemd/system/bento-sync.service
+[Unit]
+Description=Bento Tools Sync Daemon
+Documentation=https://setup.divizend.com
+After=network.target bento.service
+Requires=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bento-sync/terraform
+Environment="TOOLS_ROOT=${TOOLS_ROOT}"
+ExecStart=/opt/bento-sync/sync.sh
+Restart=on-failure
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Create systemd timer for periodic sync
+cat <<EOF > /etc/systemd/system/bento-sync.timer
+[Unit]
+Description=Bento Tools Sync Timer
+Requires=bento-sync.service
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
+EOF
+
+# Enable and start the sync timer
+systemctl daemon-reload
+systemctl enable bento-sync.timer > /dev/null 2>&1
+systemctl start bento-sync.timer > /dev/null 2>&1
+
+# Run initial sync
+echo -e "${BLUE}Running initial Bento tools sync...${NC}"
+/opt/bento-sync/sync.sh || echo -e "${YELLOW}Initial sync had issues, but continuing...${NC}"
+
+echo -e "${GREEN}Bento Tools Sync Daemon configured.${NC}"
+
+# 10. Start Services
 echo -e "${BLUE}Starting Bento...${NC}"
 # Kill any stale Bento processes that might be holding port 4195
 if lsof -ti:4195 > /dev/null 2>&1; then

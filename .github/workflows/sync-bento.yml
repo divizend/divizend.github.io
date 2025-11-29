@@ -1,0 +1,51 @@
+name: Sync Bento Tools
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'bentotools/**'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Bento API endpoint
+        id: bento_config
+        run: |
+          # Try to get from environment or use default
+          BENTO_API_URL="${BENTO_API_URL:-http://localhost:4195}"
+          echo "url=$BENTO_API_URL" >> $GITHUB_OUTPUT
+          echo "Bento API URL: $BENTO_API_URL"
+
+      - name: Sync Bento tools
+        env:
+          BENTO_API_URL: ${{ steps.bento_config.outputs.url }}
+          TOOLS_ROOT: https://setup.divizend.com/bentotools
+        run: |
+          echo "Syncing Bento tools from ${TOOLS_ROOT}..."
+          
+          # Check if Bento API is accessible
+          if ! curl -f -s "${BENTO_API_URL}/ready" > /dev/null 2>&1; then
+            echo "Warning: Bento API at ${BENTO_API_URL} is not accessible"
+            echo "This is expected if Bento is not running or not publicly accessible"
+            exit 0
+          fi
+          
+          # Trigger Bento to reload tools (if Bento supports this endpoint)
+          # This would need to be implemented in Bento or via a webhook
+          curl -X POST "${BENTO_API_URL}/admin/reload-tools" \
+            -H "Content-Type: application/json" \
+            -d "{\"tools_root\": \"${TOOLS_ROOT}\"}" \
+            || echo "Note: Bento reload endpoint may not be available yet"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Bento sync failed - check logs above"
+
