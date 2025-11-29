@@ -13,6 +13,6 @@ if [[ -z "$SOPS_AGE_KEY" ]] && [[ -f "$AGE_KEY_FILE" ]]; then
 fi
 
 # Execute SOPS command with remaining arguments
-# Use exec to replace shell process, but ensure stdout is unbuffered
-exec sops "$@"
+# Don't use exec to ensure proper output flushing
+sops "$@" || exit $?
 
