@@ -75,6 +75,31 @@ ${STREAM_DOMAIN} {
     reverse_proxy localhost:4195
 }
 EOF
+# Stop Caddy first if it's running (to avoid port conflicts)
+if systemctl is-active --quiet caddy 2>/dev/null || systemctl is-failed --quiet caddy 2>/dev/null; then
+    systemctl stop caddy
+fi
+# Check if port 443 is in use and stop conflicting services
+if ss -tuln | grep -q ':443 '; then
+    echo -e "${YELLOW}Port 443 is in use, checking for conflicting services...${NC}"
+    # Stop common web servers that might conflict
+    for service in apache2 nginx httpd; do
+        if systemctl is-active --quiet $service 2>/dev/null; then
+            echo -e "${YELLOW}Stopping ${service} to free port 443...${NC}"
+            systemctl stop $service
+            systemctl disable $service
+        fi
+    done
+    # Kill any process using port 443 (as last resort)
+    if command -v lsof > /dev/null 2>&1; then
+        PID=$(lsof -ti :443 2>/dev/null)
+        if [ -n "$PID" ]; then
+            echo -e "${YELLOW}Stopping process $PID using port 443...${NC}"
+            kill $PID 2>/dev/null || true
+        fi
+    fi
+    sleep 2
+fi
 systemctl daemon-reload
 systemctl enable caddy
 systemctl reload-or-restart caddy
@@ -219,7 +244,7 @@ echo -e "${BLUE}Configuring Systemd service...${NC}"
 cat <<EOF > /etc/systemd/system/bento.service
 [Unit]
 Description=Bento Stream Processor
-Documentation=https://www.bento.dev/
+Documentation=https://warpstreamlabs.github.io/bento/
 After=network.target
 
 [Service]
