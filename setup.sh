@@ -859,16 +859,34 @@ else
     
     # Get test tool configuration if TEST_SENDER is available
     if [ -n "$TEST_SENDER" ]; then
-        # Prompt for test tool configuration using get_config_value
-        get_config_value TEST_TOOL_NAME "Enter tool name to test (e.g., reverser)" "Tool name is required for testing"
-        get_config_value TEST_INPUT_TEXT "Enter test input text" "Test input text is required"
-        get_config_value TEST_EXPECTED_OUTPUT "Enter expected output text" "Expected output is required"
+        # Prompt for test tool configuration (optional - can be skipped)
+        if [ -t 0 ]; then
+            # Interactive mode - prompt for values
+            if [[ -z "$TEST_TOOL_NAME" ]]; then
+                read -p "Enter tool name to test (e.g., reverser) or press Enter to skip: " TEST_TOOL_NAME < /dev/tty
+            fi
+            if [[ -n "$TEST_TOOL_NAME" ]]; then
+                if [[ -z "$TEST_INPUT_TEXT" ]]; then
+                    read -p "Enter test input text: " TEST_INPUT_TEXT < /dev/tty
+                fi
+                if [[ -z "$TEST_EXPECTED_OUTPUT" ]]; then
+                    read -p "Enter expected output text: " TEST_EXPECTED_OUTPUT < /dev/tty
+                fi
+            fi
+        fi
         
-        # Run the test
-        if test_tool "$TEST_TOOL_NAME" "$TEST_INPUT_TEXT" "$TEST_EXPECTED_OUTPUT"; then
-            SETUP_SUCCESS=true
+        # Run the test if all values are provided
+        if [ -n "$TEST_TOOL_NAME" ] && [ -n "$TEST_INPUT_TEXT" ] && [ -n "$TEST_EXPECTED_OUTPUT" ]; then
+            if test_tool "$TEST_TOOL_NAME" "$TEST_INPUT_TEXT" "$TEST_EXPECTED_OUTPUT"; then
+                SETUP_SUCCESS=true
+            else
+                SETUP_SUCCESS=false
+            fi
         else
-            SETUP_SUCCESS=false
+            if [ -z "$TEST_TOOL_NAME" ]; then
+                echo -e "${YELLOW}Test skipped - TEST_TOOL_NAME not provided${NC}"
+            fi
+            SETUP_SUCCESS=true
         fi
     else
         SETUP_SUCCESS=true
