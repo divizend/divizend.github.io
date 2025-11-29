@@ -200,12 +200,17 @@ create_secrets_file_if_needed() {
         return 1
     }
     
-    # Create empty YAML file and encrypt it using SOPS
-    # Use sops_cmd to ensure proper key setup
-    if echo "{}" | sops_cmd -e /dev/stdin > "$secrets_file" 2>&1; then
+    # Create empty YAML file first, then encrypt it using SOPS
+    # SOPS needs the file path to determine encryption rules from .sops.yaml
+    echo "{}" > "$secrets_file.tmp"
+    
+    # Use sops_cmd to encrypt the file (SOPS will read .sops.yaml based on the file path)
+    if sops_cmd -e -i "$secrets_file.tmp" 2>&1; then
+        mv "$secrets_file.tmp" "$secrets_file"
         echo -e "${GREEN}✓ Created secrets.encrypted.yaml${NC}"
         return 0
     else
+        rm -f "$secrets_file.tmp"
         echo -e "${RED}Error: Failed to create secrets.encrypted.yaml${NC}" >&2
         echo -e "${YELLOW}Debug: Check that .sops.yaml is properly configured and age key is available${NC}" >&2
         return 1
