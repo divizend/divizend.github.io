@@ -32,9 +32,31 @@ else
     echo -e "${GREEN}Using BASE_DOMAIN from environment: ${BASE_DOMAIN}${NC}"
 fi
 STREAM_DOMAIN="streams.${BASE_DOMAIN}"
-SERVER_IP=$(hostname -I | awk '{print $1}' || curl -s ifconfig.me || echo "YOUR_SERVER_IP")
+SERVER_IP=$(hostname -I | awk '{print $1}' || curl -s ifconfig.me || echo "")
 echo -e "Service will be deployed at: ${GREEN}https://${STREAM_DOMAIN}${NC}"
 echo -e "${YELLOW}DNS: Create an A record: ${STREAM_DOMAIN} -> ${SERVER_IP}${NC}"
+
+# Wait for DNS record to be configured
+if [[ -n "$SERVER_IP" ]]; then
+    echo -e "${BLUE}Waiting for DNS record to propagate...${NC}"
+    while true; do
+        if command -v dig > /dev/null 2>&1; then
+            RESOLVED_IP=$(dig +short ${STREAM_DOMAIN} @8.8.8.8 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+        elif command -v host > /dev/null 2>&1; then
+            RESOLVED_IP=$(host ${STREAM_DOMAIN} 8.8.8.8 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
+        else
+            RESOLVED_IP=$(nslookup ${STREAM_DOMAIN} 8.8.8.8 2>/dev/null | grep -A1 "Name:" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
+        fi
+        if [[ -n "$RESOLVED_IP" ]] && [[ "$RESOLVED_IP" == "$SERVER_IP" ]]; then
+            echo -e "${GREEN}DNS record is correctly configured!${NC}"
+            break
+        fi
+        echo -e "${YELLOW}DNS not ready yet (resolved to: ${RESOLVED_IP:-not found}), waiting 5 seconds...${NC}"
+        sleep 5
+    done
+else
+    echo -e "${YELLOW}Could not detect server IP, skipping DNS check.${NC}"
+fi
 
 # S2 Configuration
 if [[ -z "$S2_ACCESS_TOKEN" ]]; then
