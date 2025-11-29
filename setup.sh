@@ -564,15 +564,15 @@ echo -e "${GREEN}Bento Tools Sync Daemon configured.${NC}"
 
 # 10. Start Services
 echo -e "${BLUE}Starting Bento...${NC}"
-# Kill any stale Bento processes that might be holding port 4195
-if lsof -ti:4195 > /dev/null 2>&1; then
+# Stop the service if it's running to ensure clean start (don't kill, just stop gracefully)
+systemctl stop bento 2>/dev/null || true
+sleep 2
+# Only kill processes if service stop didn't work and port is still in use
+if lsof -ti:4195 > /dev/null 2>&1 && ! systemctl is-active --quiet bento 2>/dev/null; then
     echo -e "${YELLOW}Killing stale process on port 4195...${NC}"
     lsof -ti:4195 | xargs kill -9 2>/dev/null || true
     sleep 2
 fi
-# Also stop the service if it's running to ensure clean start
-systemctl stop bento 2>/dev/null || true
-sleep 2
 # Remove any old stream files that shouldn't exist
 rm -f /etc/bento/streams/process_reverser.yaml
 
@@ -678,6 +678,37 @@ if ! check_service_health bento 4195 "Bento"; then
 fi
 
 check_https_endpoint "https://${STREAM_DOMAIN}" "200,201,404" || true
+
+# If Caddy failed, try to fix it
+if [ "$CADDY_FAILED" = true ]; then
+    echo -e "\n${YELLOW}Attempting to fix Caddy service...${NC}"
+    systemctl reset-failed caddy 2>/dev/null || true
+    systemctl stop caddy 2>/dev/null || true
+    sleep 2
+    
+    # Check for port conflicts
+    if is_port_listening 443 && ! is_service_active caddy; then
+        echo -e "${YELLOW}Port 443 is in use, checking for conflicting services...${NC}"
+        for service in apache2 nginx httpd; do
+            if is_service_active "$service"; then
+                echo -e "${YELLOW}Stopping ${service} to free port 443...${NC}"
+                systemctl stop "$service"
+                systemctl disable "$service" > /dev/null 2>&1 || true
+            fi
+        done
+        sleep 1
+    fi
+    
+    if ensure_service_running caddy 443 "Caddy"; then
+        CADDY_FAILED=false
+        HEALTH_FAILED=false
+    else
+        echo -e "${YELLOW}Showing Caddy service status:${NC}"
+        systemctl status caddy --no-pager -l | head -n 30 | sed 's/^/  /'
+        echo -e "${YELLOW}Showing recent Caddy logs:${NC}"
+        journalctl -u caddy -n 30 --no-pager | sed 's/^/  /'
+    fi
+fi
 
 # If Bento failed, try to fix it
 if [ "$BENTO_FAILED" = true ]; then
