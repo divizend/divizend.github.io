@@ -37,26 +37,7 @@ echo -e "Service will be deployed at: ${GREEN}https://${STREAM_DOMAIN}${NC}"
 echo -e "${YELLOW}DNS: Create an A record: ${STREAM_DOMAIN} -> ${SERVER_IP}${NC}"
 
 # Wait for DNS record to be configured
-if [[ -n "$SERVER_IP" ]]; then
-    echo -e "${BLUE}Waiting for DNS record to propagate...${NC}"
-    while true; do
-        if command -v dig > /dev/null 2>&1; then
-            RESOLVED_IP=$(dig +short ${STREAM_DOMAIN} @8.8.8.8 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
-        elif command -v host > /dev/null 2>&1; then
-            RESOLVED_IP=$(host ${STREAM_DOMAIN} 8.8.8.8 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
-        else
-            RESOLVED_IP=$(nslookup ${STREAM_DOMAIN} 8.8.8.8 2>/dev/null | grep -A1 "Name:" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
-        fi
-        if [[ -n "$RESOLVED_IP" ]] && [[ "$RESOLVED_IP" == "$SERVER_IP" ]]; then
-            echo -e "${GREEN}DNS record is correctly configured!${NC}"
-            break
-        fi
-        echo -e "${YELLOW}DNS not ready yet (resolved to: ${RESOLVED_IP:-not found}), waiting 5 seconds...${NC}"
-        sleep 5
-    done
-else
-    echo -e "${YELLOW}Could not detect server IP, skipping DNS check.${NC}"
-fi
+wait_for_dns "${STREAM_DOMAIN}" "$SERVER_IP" || true
 
 # S2 Configuration
 get_config_value S2_ACCESS_TOKEN "Enter S2 Access Token" "S2 Token is required."
@@ -128,38 +109,41 @@ rm -f "$EXPECTED_CADDYFILE"
 systemctl daemon-reload
 systemctl enable caddy > /dev/null 2>&1 || true
 
-# Check if Caddy is running and healthy
-if systemctl is-active --quiet caddy 2>/dev/null; then
-    if [ "$CADDYFILE_CHANGED" = true ]; then
+# Ensure Caddy is running
+if [ "$CADDYFILE_CHANGED" = true ]; then
+    if is_service_active caddy; then
         echo -e "${BLUE}Reloading Caddy configuration...${NC}"
         systemctl reload caddy || {
             echo -e "${YELLOW}Caddy reload failed, attempting restart...${NC}"
             systemctl restart caddy || echo -e "${YELLOW}Note: Caddy restart had issues, but continuing...${NC}"
         }
     else
-        echo -e "${GREEN}Caddy is already running.${NC}"
-    fi
-else
-    # Caddy is not running - check for port conflicts only if we need to start it
-    if ss -tuln | grep -q ':443 '; then
-        echo -e "${YELLOW}Port 443 is in use, checking for conflicting services...${NC}"
-        # Only stop services if Caddy isn't the one using the port
-        if ! systemctl is-active --quiet caddy 2>/dev/null; then
+        # Check for port conflicts
+        if is_port_listening 443 && ! is_service_active caddy; then
+            echo -e "${YELLOW}Port 443 is in use, checking for conflicting services...${NC}"
             for service in apache2 nginx httpd; do
-                if systemctl is-active --quiet $service 2>/dev/null; then
+                if is_service_active "$service"; then
                     echo -e "${YELLOW}Stopping ${service} to free port 443...${NC}"
-                    systemctl stop $service
-                    systemctl disable $service > /dev/null 2>&1 || true
+                    systemctl stop "$service"
+                    systemctl disable "$service" > /dev/null 2>&1 || true
                 fi
             done
             sleep 1
         fi
+        ensure_service_running caddy 443 "Caddy" || {
+            echo -e "${YELLOW}Warning: Caddy failed to start. This may be due to port conflicts or configuration issues.${NC}"
+            echo -e "${YELLOW}You can check the status with: systemctl status caddy${NC}"
+        }
     fi
-    echo -e "${BLUE}Starting Caddy...${NC}"
-    systemctl start caddy || {
-        echo -e "${YELLOW}Warning: Caddy failed to start. This may be due to port conflicts or configuration issues.${NC}"
-        echo -e "${YELLOW}You can check the status with: systemctl status caddy${NC}"
-    }
+else
+    if is_service_active caddy; then
+        echo -e "${GREEN}Caddy is already running.${NC}"
+    else
+        ensure_service_running caddy 443 "Caddy" || {
+            echo -e "${YELLOW}Warning: Caddy failed to start.${NC}"
+            echo -e "${YELLOW}You can check the status with: systemctl status caddy${NC}"
+        }
+    fi
 fi
 
 # 6. Install Bento (Stream Processor)
@@ -634,117 +618,38 @@ HEALTH_FAILED=false
 CADDY_FAILED=false
 BENTO_FAILED=false
 
-# Check Caddy service
-if systemctl is-active --quiet caddy; then
-    echo -e "${GREEN}✓ Caddy service is running${NC}"
-else
-    echo -e "${RED}✗ Caddy service is not running${NC}"
+# Health checks
+HEALTH_FAILED=false
+CADDY_FAILED=false
+BENTO_FAILED=false
+
+if ! check_service_health caddy 443 "Caddy"; then
     HEALTH_FAILED=true
     CADDY_FAILED=true
 fi
 
-# Check Bento service
-if systemctl is-active --quiet bento; then
-    echo -e "${GREEN}✓ Bento service is running${NC}"
-else
-    echo -e "${RED}✗ Bento service is not running${NC}"
+if ! check_service_health bento 4195 "Bento"; then
     HEALTH_FAILED=true
     BENTO_FAILED=true
 fi
 
-# Check Caddy is listening on port 443
-if ss -tuln | grep -q ':443 '; then
-    echo -e "${GREEN}✓ Caddy is listening on port 443${NC}"
-else
-    echo -e "${RED}✗ Caddy is not listening on port 443${NC}"
-    HEALTH_FAILED=true
-    CADDY_FAILED=true
-fi
+check_https_endpoint "https://${STREAM_DOMAIN}" "200,201,404" || true
 
-# Check Bento is listening on port 4195
-if ss -tuln | grep -q ':4195 '; then
-    echo -e "${GREEN}✓ Bento is listening on port 4195${NC}"
-else
-    echo -e "${RED}✗ Bento is not listening on port 4195${NC}"
-    HEALTH_FAILED=true
-    BENTO_FAILED=true
-fi
-
-# Check HTTPS endpoint (with timeout) - 404 is expected as there's no root route
-if curl -s --max-time 5 -o /dev/null -w "%{http_code}" https://${STREAM_DOMAIN} > /dev/null 2>&1; then
-    HTTP_CODE=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" https://${STREAM_DOMAIN} 2>/dev/null)
-    if [[ "$HTTP_CODE" =~ ^[23] ]]; then
-        echo -e "${GREEN}✓ HTTPS endpoint is reachable (HTTP ${HTTP_CODE})${NC}"
-    elif [ "$HTTP_CODE" = "404" ]; then
-        # 404 is expected - there's no root route, only webhook endpoint
-        echo -e "${GREEN}✓ HTTPS endpoint is reachable (HTTP 404 is expected)${NC}"
-    else
-        echo -e "${YELLOW}⚠ HTTPS endpoint returned HTTP ${HTTP_CODE}${NC}"
-    fi
-else
-    echo -e "${YELLOW}⚠ HTTPS endpoint is not reachable yet${NC}"
-fi
-
-# If Bento failed, try to fix it before giving up
+# If Bento failed, try to fix it
 if [ "$BENTO_FAILED" = true ]; then
     echo -e "\n${YELLOW}Attempting to fix Bento service...${NC}"
     systemctl reset-failed bento 2>/dev/null || true
     systemctl stop bento 2>/dev/null || true
     sleep 2
-    systemctl start bento
-    sleep 5
     
-    # Re-check Bento
-    BENTO_FIXED=false
-    if systemctl is-active --quiet bento && ss -tuln | grep -q ':4195 '; then
-        echo -e "${GREEN}Bento service is now running!${NC}"
-        BENTO_FIXED=true
+    if ensure_service_running bento 4195 "Bento"; then
         BENTO_FAILED=false
         HEALTH_FAILED=false
     else
-        echo -e "${RED}Bento service still not running after fix attempt${NC}"
-        
-        # Final check
-        if systemctl is-active --quiet bento && ss -tuln | grep -q ':4195 '; then
-            echo -e "${GREEN}Bento service is now running!${NC}"
-            BENTO_FIXED=true
-            BENTO_FAILED=false
-            HEALTH_FAILED=false
-        else
-            echo -e "${YELLOW}Showing Bento service status:${NC}"
-            systemctl status bento --no-pager -l | head -n 30 | sed 's/^/  /'
-            echo -e "${YELLOW}Showing recent Bento logs:${NC}"
-            journalctl -u bento -n 30 --no-pager | sed 's/^/  /'
-        fi
-    fi
-fi
-
-# Final check: Ensure Bento is running before declaring success
-if [ "$BENTO_FAILED" = true ] || ! systemctl is-active --quiet bento || ! ss -tuln | grep -q ':4195 '; then
-    echo -e "\n${YELLOW}Final attempt to start Bento...${NC}"
-    systemctl reset-failed bento 2>/dev/null || true
-    systemctl stop bento 2>/dev/null || true
-    sleep 2
-    
-    
-    systemctl start bento
-    sleep 5
-    
-    # Wait up to 10 seconds for Bento to start
-    for i in {1..10}; do
-        if systemctl is-active --quiet bento && ss -tuln | grep -q ':4195 '; then
-            echo -e "${GREEN}Bento is now running and listening on port 4195!${NC}"
-            BENTO_FAILED=false
-            HEALTH_FAILED=false
-            break
-        fi
-        sleep 1
-    done
-    
-    if ! systemctl is-active --quiet bento || ! ss -tuln | grep -q ':4195 '; then
-        echo -e "${RED}Failed to start Bento after all attempts${NC}"
-        HEALTH_FAILED=true
-        BENTO_FAILED=true
+        echo -e "${YELLOW}Showing Bento service status:${NC}"
+        systemctl status bento --no-pager -l | head -n 30 | sed 's/^/  /'
+        echo -e "${YELLOW}Showing recent Bento logs:${NC}"
+        journalctl -u bento -n 30 --no-pager | sed 's/^/  /'
     fi
 fi
 
@@ -794,27 +699,14 @@ test_tool() {
     
     echo -e "${BLUE}Testing tool '${TOOL_NAME}': sending '${INPUT_TEXT}' to ${TEST_RECEIVER}, expecting '${EXPECTED_OUTPUT}'...${NC}"
     
-    # Send test email
-    local TEST_RESPONSE
-    TEST_RESPONSE=$(curl -s --max-time 10 -X POST https://api.resend.com/emails \
-        -H "Authorization: Bearer ${RESEND_API_KEY}" \
-        -H "Content-Type: application/json" \
-        -d "{
-            \"from\": \"${TEST_SENDER}\",
-            \"to\": [\"${TEST_RECEIVER}\"],
-            \"subject\": \"${TEST_SUBJECT}\",
-            \"text\": \"${INPUT_TEXT}\"
-        }" 2>/dev/null)
+    # Send test email using common function
+    local EMAIL_ID
+    EMAIL_ID=$(send_resend_email "${TEST_SENDER}" "${TEST_RECEIVER}" "${TEST_SUBJECT}" "${INPUT_TEXT}" "${RESEND_API_KEY}")
     
-    if ! echo "$TEST_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
-        local ERROR_MSG
-        ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.message' 2>/dev/null || echo "$TEST_RESPONSE")
-        echo -e "${RED}✗ Failed to send test email: ${ERROR_MSG}${NC}"
+    if [[ $? -ne 0 ]] || [[ -z "$EMAIL_ID" ]]; then
+        echo -e "${RED}✗ Failed to send test email${NC}"
         return 1
     fi
-    
-    local EMAIL_ID
-    EMAIL_ID=$(echo "$TEST_RESPONSE" | jq -r '.id')
     echo -e "${GREEN}✓ Test email sent (ID: ${EMAIL_ID})${NC}"
     echo -e "${BLUE}Waiting for reply email with expected output '${EXPECTED_OUTPUT}'...${NC}"
     

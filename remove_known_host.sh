@@ -19,7 +19,11 @@ if [[ ! -f "$KNOWN_HOSTS_FILE" ]]; then
 fi
 
 # Create backup
-cp "$KNOWN_HOSTS_FILE" "${KNOWN_HOSTS_FILE}.bak.$(date +%s)"
+BACKUP_FILE=$(backup_file "$KNOWN_HOSTS_FILE")
+if [[ -z "$BACKUP_FILE" ]]; then
+    echo "Error: Failed to create backup" >&2
+    exit 1
+fi
 
 # Count lines to remove before deletion
 REMOVED=$(grep -c "${SERVER_IP}" "$KNOWN_HOSTS_FILE" 2>/dev/null | head -n1 | tr -d '\n' || echo "0")
