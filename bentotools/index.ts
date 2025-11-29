@@ -56,7 +56,7 @@ let recipient_email = this.data.to[0] | ""
 
 # Extract inbox name from recipient email (e.g., "reverser@domain.com" -> "reverser")
 let inbox_name = $recipient_email.split("@")[0] | ""
-let sender_domain = "${BASE_DOMAIN}"
+let sender_domain = "\${BASE_DOMAIN}"
 let sender_email = $inbox_name + "@" + $sender_domain
 
 # Automatically determine receiver (original sender)
@@ -80,7 +80,7 @@ root._subject = $subject`,
           language: "bun",
           code: `
 // Parse TOOLS_ROOT_GITHUB to construct raw GitHub URL
-const toolsRoot = "${TOOLS_ROOT_GITHUB}";
+const toolsRoot = "\${TOOLS_ROOT_GITHUB}";
 const match = toolsRoot.match(/^https:\\/\\/github\\.com\\/([^\\/]+)\\/([^\\/]+)(?:\\/([^\\/]+))?(?:\\/(.*))?$/);
 if (!match) {
   throw new Error("Invalid TOOLS_ROOT_GITHUB format: " + toolsRoot);
