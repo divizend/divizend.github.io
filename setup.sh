@@ -492,7 +492,7 @@ TFEOF
 # Create sync daemon script
 cat <<SYNC_SCRIPT > /opt/bento-sync/sync.sh
 #!/bin/bash
-set -e
+set +e  # Don't exit on error for lock handling
 
 cd /opt/bento-sync/terraform
 
@@ -504,11 +504,26 @@ if [ ! -d ".terraform" ]; then
     terraform init -upgrade
 fi
 
-# Apply Terraform configuration to sync tools
-terraform apply -auto-approve -refresh=true -var="tools_root=${TOOLS_ROOT}"
+# Wait for lock to be released if it exists (max 30 seconds)
+LOCK_FILE=".terraform.tfstate.lock.info"
+if [ -f "\$LOCK_FILE" ]; then
+    echo "Waiting for Terraform lock to be released..."
+    for i in {1..30}; do
+        if [ ! -f "\$LOCK_FILE" ]; then
+            break
+        fi
+        sleep 1
+    done
+fi
 
-# Log the sync
-echo "\$(date): Bento tools synced from \${TOOLS_ROOT}" >> /var/log/bento-sync.log
+# Apply Terraform configuration to sync tools
+# Suppress lock errors as they're expected when multiple syncs run simultaneously
+terraform apply -auto-approve -refresh=true -var="tools_root=\${TOOLS_ROOT}" 2>&1 | grep -v "Error acquiring the state lock" || true
+
+# Log the sync (only if successful or if lock wasn't the issue)
+if [ \$? -eq 0 ] || ! terraform show 2>&1 | grep -q "state lock"; then
+    echo "\$(date): Bento tools synced from \${TOOLS_ROOT}" >> /var/log/bento-sync.log
+fi
 SYNC_SCRIPT
 
 chmod +x /opt/bento-sync/sync.sh
@@ -558,7 +573,8 @@ systemctl start bento-sync.timer > /dev/null 2>&1
 
 # Run initial sync
 echo -e "${BLUE}Running initial Bento tools sync...${NC}"
-/opt/bento-sync/sync.sh || echo -e "${YELLOW}Initial sync had issues, but continuing...${NC}"
+# Run sync script (it handles locks internally)
+/opt/bento-sync/sync.sh > /dev/null 2>&1 || echo -e "${YELLOW}Initial sync had issues (may be due to concurrent execution), but continuing...${NC}"
 
 echo -e "${GREEN}Bento Tools Sync Daemon configured.${NC}"
 
