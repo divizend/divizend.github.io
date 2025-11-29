@@ -243,9 +243,13 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# In streams mode, config.yaml is minimal - resources are defined inline in stream files
+# In streams mode, config.yaml defines cache resources for S2 inputs
 cat <<EOF > /etc/bento/config.yaml
-{}
+cache_resources:
+  - label: s2_inbox_cache
+    noop: {}
+  - label: s2_outbox_cache
+    noop: {}
 EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
@@ -281,6 +285,7 @@ input:
     basin: ${BASE_DOMAIN}
     streams: inbox/
     auth_token: "${S2_ACCESS_TOKEN}"
+    cache: s2_inbox_cache
 
 pipeline:
   processors:
@@ -326,6 +331,7 @@ input:
     basin: ${BASE_DOMAIN}
     streams: outbox
     auth_token: "${S2_ACCESS_TOKEN}"
+    cache: s2_outbox_cache
 
 output:
   http_client:
