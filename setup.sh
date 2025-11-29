@@ -104,17 +104,7 @@ if [[ -f "/tmp/.sops.yaml" ]]; then
     # Add server public key to .sops.yaml if not present
     if ! grep -q "$SERVER_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
         echo -e "${BLUE}📝 Adding server public key to .sops.yaml...${NC}"
-        # Use bash script to add key if available
-        if [[ -f "/tmp/scripts/secrets.sh" ]]; then
-            export SOPS_AGE_KEY=$(cat "$SERVER_AGE_KEY_FILE")
-            bash /tmp/scripts/secrets.sh add-recipient "$SERVER_PUBLIC_KEY" || {
-                # Fallback: simple sed approach
-                sed -i "s|age: >-|age: >-\\n      ${SERVER_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"
-            }
-        else
-            # Fallback: simple sed approach
-            sed -i "s|age: >-|age: >-\\n      ${SERVER_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"
-        fi
+        add_sops_recipient "$SERVER_PUBLIC_KEY"
     fi
     # Copy secrets.encrypted.yaml (already re-encrypted on local machine with server key)
     if [[ -f "/tmp/secrets.encrypted.yaml" ]]; then
