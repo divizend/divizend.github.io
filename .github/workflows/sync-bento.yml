@@ -34,31 +34,24 @@ jobs:
           sops -d secrets.encrypted.yaml > secrets.yaml
           rm -f /tmp/age-key.txt
 
-      - name: Load secrets
-        id: secrets
+      - name: Export secrets as env vars
         run: |
-          echo "📋 Loading secrets..."
-          BENTO_API_URL=$(grep -E "^BENTO_API_URL:" secrets.yaml | sed 's/^BENTO_API_URL:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "http://localhost:4195")
-          S2_BASIN=$(grep -E "^S2_BASIN:" secrets.yaml | sed 's/^S2_BASIN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-          BASE_DOMAIN=$(grep -E "^BASE_DOMAIN:" secrets.yaml | sed 's/^BASE_DOMAIN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-          S2_ACCESS_TOKEN=$(grep -E "^S2_ACCESS_TOKEN:" secrets.yaml | sed 's/^S2_ACCESS_TOKEN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-          RESEND_API_KEY=$(grep -E "^RESEND_API_KEY:" secrets.yaml | sed 's/^RESEND_API_KEY:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-          SERVER_IP=$(grep -E "^SERVER_IP:" secrets.yaml | sed 's/^SERVER_IP:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-          SSH_PRIVATE_KEY=$(grep -E "^SSH_PRIVATE_KEY:" secrets.yaml | sed 's/^SSH_PRIVATE_KEY:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
-          
-          echo "bento_api_url=${BENTO_API_URL}" >> $GITHUB_OUTPUT
-          echo "s2_basin=${S2_BASIN}" >> $GITHUB_OUTPUT
-          echo "base_domain=${BASE_DOMAIN}" >> $GITHUB_OUTPUT
-          echo "s2_access_token=${S2_ACCESS_TOKEN}" >> $GITHUB_OUTPUT
-          echo "resend_api_key=${RESEND_API_KEY}" >> $GITHUB_OUTPUT
-          echo "server_ip=${SERVER_IP}" >> $GITHUB_OUTPUT
-          echo "ssh_private_key=${SSH_PRIVATE_KEY}" >> $GITHUB_OUTPUT
+          echo "📋 Exporting secrets as environment variables..."
+          # Convert YAML key: value to export statements
+          while IFS=: read -r key value; do
+            # Skip comments and empty lines
+            [[ "$key" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$key" ]] && continue
+            # Trim whitespace and remove quotes
+            key=$(echo "$key" | xargs)
+            value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/^"//;s/"$//')
+            # Export to GITHUB_ENV for subsequent steps
+            echo "${key}=${value}" >> $GITHUB_ENV
+          done < secrets.yaml
+          echo "✓ Secrets exported"
 
       - name: Pull on server
-        if: steps.secrets.outputs.server_ip != '' && steps.secrets.outputs.ssh_private_key != ''
-        env:
-          SERVER_IP: ${{ steps.secrets.outputs.server_ip }}
-          SSH_PRIVATE_KEY: ${{ steps.secrets.outputs.ssh_private_key }}
+        if: env.SERVER_IP != '' && env.SSH_PRIVATE_KEY != ''
         run: |
           echo "🔄 Pulling bentotools on server..."
           mkdir -p ~/.ssh
@@ -75,12 +68,7 @@ jobs:
 
       - name: Sync streams
         env:
-          BENTO_API_URL: ${{ steps.secrets.outputs.bento_api_url }}
           TOOLS_ROOT_GITHUB: https://github.com/${{ github.repository }}/${{ github.ref_name }}/bentotools
-          S2_BASIN: ${{ steps.secrets.outputs.s2_basin }}
-          BASE_DOMAIN: ${{ steps.secrets.outputs.base_domain }}
-          S2_ACCESS_TOKEN: ${{ steps.secrets.outputs.s2_access_token }}
-          RESEND_API_KEY: ${{ steps.secrets.outputs.resend_api_key }}
         run: |
           echo "🔄 Syncing Bento streams..."
           bun bentotools/sync.ts
