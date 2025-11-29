@@ -282,6 +282,9 @@ echo -e "${BLUE}Ensuring S2 basin '${S2_BASIN}' exists...${NC}"
 export PATH="$HOME/.s2/bin:$PATH"
 S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
 
+# Ensure access token is configured (set it again to be sure)
+"$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1
+
 if ! "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
     echo -e "${BLUE}Creating S2 basin '${S2_BASIN}'...${NC}"
     CREATE_OUTPUT=$("$S2_CMD" create-basin "${S2_BASIN}" 2>&1)
@@ -289,19 +292,43 @@ if ! "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
     if [ $CREATE_EXIT -eq 0 ]; then
         echo -e "${GREEN}S2 basin '${S2_BASIN}' created successfully.${NC}"
     else
-        echo -e "${YELLOW}Warning: Failed to create S2 basin '${S2_BASIN}'${NC}"
-        if echo "$CREATE_OUTPUT" | grep -q "not authorized\|permission"; then
-            echo -e "${YELLOW}Your S2 access token doesn't have permission to create basins.${NC}"
-            echo -e "${YELLOW}Please create the basin manually: s2 create-basin ${S2_BASIN}${NC}"
-            echo -e "${YELLOW}Or grant your access token basin creation permissions in the S2 dashboard.${NC}"
-        fi
-        # Verify basin exists now (might have been created by another process)
-        sleep 1
-        if "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
-            echo -e "${GREEN}S2 basin '${S2_BASIN}' is now available.${NC}"
+        # Debug: show the actual error
+        echo -e "${YELLOW}Debug: Basin creation output:${NC}"
+        echo "$CREATE_OUTPUT" | sed 's/^/  /'
+        
+        # Check if it's a permission issue or something else
+        if echo "$CREATE_OUTPUT" | grep -qi "not authorized\|permission\|unauthorized"; then
+            echo -e "${YELLOW}Checking S2 configuration...${NC}"
+            # Verify token is set
+            if [ -f "$HOME/.config/s2/config.toml" ]; then
+                echo -e "${GREEN}✓ S2 config file exists${NC}"
+            else
+                echo -e "${RED}✗ S2 config file not found${NC}"
+            fi
+            
+            # Try to verify token is working by listing basins
+            if "$S2_CMD" list-basins >/dev/null 2>&1; then
+                echo -e "${GREEN}✓ S2 access token is valid (can list basins)${NC}"
+                echo -e "${YELLOW}But token may not have basin creation permissions.${NC}"
+                echo -e "${YELLOW}Please check your S2 access token permissions in the dashboard.${NC}"
+            else
+                echo -e "${RED}✗ S2 access token appears invalid${NC}"
+                echo -e "${RED}Please verify your S2_ACCESS_TOKEN is correct.${NC}"
+            fi
+            
+            # Verify basin exists now (might have been created by another process)
+            sleep 1
+            if "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
+                echo -e "${GREEN}S2 basin '${S2_BASIN}' is now available.${NC}"
+            else
+                echo -e "${RED}Error: S2 basin '${S2_BASIN}' does not exist and could not be created.${NC}"
+                echo -e "${RED}Setup cannot continue without the basin.${NC}"
+                exit 1
+            fi
         else
-            echo -e "${RED}Error: S2 basin '${S2_BASIN}' does not exist and could not be created.${NC}"
-            echo -e "${RED}Setup cannot continue without the basin. Please create it manually.${NC}"
+            # Some other error
+            echo -e "${RED}Error: Failed to create S2 basin '${S2_BASIN}'${NC}"
+            echo -e "${RED}Setup cannot continue without the basin.${NC}"
             exit 1
         fi
     fi
