@@ -261,10 +261,9 @@ pipeline:
         let svix_signature = this.meta.headers.get("svix-signature") | this.meta.headers.get("Svix-Signature") | this.meta.headers.get("svix-signature") | ""
         
         # Bento http_server provides the body as the root object
-        # If it's already parsed JSON, use it directly
-        # If it's a string, parse it
-        # The http_server input typically provides the body as a string that needs parsing
-        root = this.type() == "string" ? this.parse_json() : this
+        # The http_server input provides the body as a string that needs parsing
+        # Parse the JSON body
+        root = this.parse_json()
 
 output:
   aws_s3:
