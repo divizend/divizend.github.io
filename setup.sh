@@ -544,11 +544,8 @@ else
     fi
 fi
 
-# Create directory for sync daemon
-mkdir -p /opt/bento-sync
-
-# Download sync script from TOOLS_ROOT_GITHUB
-# Parse TOOLS_ROOT_GITHUB to construct raw GitHub URL
+# Clone or update bentotools directory from TOOLS_ROOT_GITHUB
+# Parse TOOLS_ROOT_GITHUB to construct git clone URL
 if [[ "$TOOLS_ROOT_GITHUB" =~ ^https://github\.com/([^/]+)/([^/]+)(/([^/]+))?(/(.*))?$ ]]; then
     OWNER="${BASH_REMATCH[1]}"
     REPO="${BASH_REMATCH[2]}"
@@ -561,20 +558,51 @@ if [[ "$TOOLS_ROOT_GITHUB" =~ ^https://github\.com/([^/]+)/([^/]+)(/([^/]+))?(/(
         BRANCH="$DEFAULT_BRANCH"
     fi
     
-    # Construct raw GitHub URL for sync.ts
-    if [ -n "$PATH_PART" ]; then
-        PATH_PART="${PATH_PART%/}"
-        SYNC_SCRIPT_URL="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${PATH_PART}/sync.ts"
+    # Construct git clone URL
+    GIT_URL="https://github.com/${OWNER}/${REPO}.git"
+    
+    # Clone or update the repository
+    if [ -d "/opt/bento-sync/.git" ]; then
+        echo -e "${BLUE}Updating bentotools directory...${NC}"
+        cd /opt/bento-sync
+        git fetch origin
+        git checkout "${BRANCH}" 2>/dev/null || git checkout -b "${BRANCH}" "origin/${BRANCH}" 2>/dev/null || true
+        git pull origin "${BRANCH}" || {
+            echo -e "${YELLOW}⚠ Could not pull latest changes, continuing with existing version${NC}"
+        }
     else
-        SYNC_SCRIPT_URL="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/sync.ts"
+        echo -e "${BLUE}Cloning bentotools directory from ${GIT_URL} (branch: ${BRANCH})...${NC}"
+        rm -rf /opt/bento-sync
+        git clone -b "${BRANCH}" "${GIT_URL}" /opt/bento-sync || {
+            echo -e "${RED}Error: Could not clone repository${NC}" >&2
+            exit 1
+        }
+        
+        # If PATH_PART is specified, we need to work in a subdirectory
+        # For now, we assume the entire repo is cloned and we work from the root
+        # If PATH_PART is set, we'll need to adjust the working directory
+        if [ -n "$PATH_PART" ]; then
+            PATH_PART="${PATH_PART%/}"
+            if [ -d "/opt/bento-sync/${PATH_PART}" ]; then
+                # Move the subdirectory to be the root
+                mv "/opt/bento-sync/${PATH_PART}" /opt/bento-sync-tmp
+                rm -rf /opt/bento-sync
+                mv /opt/bento-sync-tmp /opt/bento-sync
+            fi
+        fi
     fi
     
-    echo -e "${BLUE}Downloading sync script from ${SYNC_SCRIPT_URL}...${NC}"
-    curl -fsSL "$SYNC_SCRIPT_URL" -o /opt/bento-sync/sync.ts || {
-        echo -e "${RED}Error: Could not download sync.ts from GitHub${NC}" >&2
-        exit 1
-    }
-    chmod +x /opt/bento-sync/sync.ts
+    cd /opt/bento-sync
+    
+    # Install bun dependencies
+    echo -e "${BLUE}Installing bun dependencies...${NC}"
+    if [ -f "package.json" ]; then
+        bun install || {
+            echo -e "${YELLOW}⚠ Could not install dependencies, continuing anyway${NC}"
+        }
+    else
+        echo -e "${YELLOW}⚠ No package.json found in bentotools directory${NC}"
+    fi
 else
     echo -e "${RED}Error: Invalid TOOLS_ROOT_GITHUB format${NC}" >&2
     exit 1
@@ -587,13 +615,14 @@ systemctl start bento-sync.timer > /dev/null 2>&1
 
 # Run initial sync
 echo -e "${BLUE}Running initial Bento tools sync...${NC}"
+cd /opt/bento-sync
 if ! BENTO_API_URL="http://localhost:4195" \
 TOOLS_ROOT_GITHUB="${TOOLS_ROOT_GITHUB}" \
 S2_BASIN="${S2_BASIN}" \
 BASE_DOMAIN="${BASE_DOMAIN}" \
 S2_ACCESS_TOKEN="${S2_ACCESS_TOKEN}" \
 RESEND_API_KEY="${RESEND_API_KEY}" \
-bun /opt/bento-sync/sync.ts; then
+bun sync.ts; then
     echo -e "${RED}Error: Initial Bento tools sync failed${NC}" >&2
     echo -e "${RED}This is required for the system to function properly.${NC}" >&2
     echo -e "${YELLOW}Check the error messages above and ensure:${NC}" >&2

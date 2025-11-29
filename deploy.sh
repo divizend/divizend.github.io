@@ -87,9 +87,9 @@ load_secrets_from_sops
 
 if ! git diff --quiet setup.sh; then
     echo "[INFO] Committing and pushing setup.sh..."
-    git add setup.sh
-    git commit -m "Update setup.sh"
-    git push
+git add setup.sh
+git commit -m "Update setup.sh"
+git push
 else
     echo "[INFO] setup.sh is unchanged, skipping git operations."
 fi

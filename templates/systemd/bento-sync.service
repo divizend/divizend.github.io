@@ -14,7 +14,7 @@ Environment="S2_BASIN=${S2_BASIN}"
 Environment="BASE_DOMAIN=${BASE_DOMAIN}"
 Environment="S2_ACCESS_TOKEN=${S2_ACCESS_TOKEN}"
 Environment="RESEND_API_KEY=${RESEND_API_KEY}"
-ExecStart=/usr/local/bin/bun /opt/bento-sync/sync.ts
+ExecStart=/usr/local/bin/bun sync.ts
 Restart=on-failure
 RestartSec=60
 StandardOutput=journal

@@ -109,6 +109,8 @@ jobs:
               BASE_DOMAIN=$(yq eval '.BASE_DOMAIN // ""' secrets.yaml)
               S2_ACCESS_TOKEN=$(yq eval '.S2_ACCESS_TOKEN // ""' secrets.yaml)
               RESEND_API_KEY=$(yq eval '.RESEND_API_KEY // ""' secrets.yaml)
+              SERVER_IP=$(yq eval '.SERVER_IP // ""' secrets.yaml)
+              SSH_PRIVATE_KEY=$(yq eval '.SSH_PRIVATE_KEY // ""' secrets.yaml)
             else
               # Simple parsing (handles YAML key: value format)
               BENTO_API_URL=$(grep -E "^BENTO_API_URL:" secrets.yaml | sed 's/^BENTO_API_URL:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "http://localhost:4195")
@@ -116,6 +118,8 @@ jobs:
               BASE_DOMAIN=$(grep -E "^BASE_DOMAIN:" secrets.yaml | sed 's/^BASE_DOMAIN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
               S2_ACCESS_TOKEN=$(grep -E "^S2_ACCESS_TOKEN:" secrets.yaml | sed 's/^S2_ACCESS_TOKEN:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
               RESEND_API_KEY=$(grep -E "^RESEND_API_KEY:" secrets.yaml | sed 's/^RESEND_API_KEY:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+              SERVER_IP=$(grep -E "^SERVER_IP:" secrets.yaml | sed 's/^SERVER_IP:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
+              SSH_PRIVATE_KEY=$(grep -E "^SSH_PRIVATE_KEY:" secrets.yaml | sed 's/^SSH_PRIVATE_KEY:[[:space:]]*//' | sed 's/^"//;s/"$//' || echo "")
             fi
             
             echo "bento_api_url=${BENTO_API_URL}" >> $GITHUB_OUTPUT
@@ -123,13 +127,52 @@ jobs:
             echo "base_domain=${BASE_DOMAIN}" >> $GITHUB_OUTPUT
             echo "s2_access_token=${S2_ACCESS_TOKEN}" >> $GITHUB_OUTPUT
             echo "resend_api_key=${RESEND_API_KEY}" >> $GITHUB_OUTPUT
+            echo "server_ip=${SERVER_IP}" >> $GITHUB_OUTPUT
+            echo "ssh_private_key=${SSH_PRIVATE_KEY}" >> $GITHUB_OUTPUT
           else
             echo "bento_api_url=http://localhost:4195" >> $GITHUB_OUTPUT
             echo "s2_basin=" >> $GITHUB_OUTPUT
             echo "base_domain=" >> $GITHUB_OUTPUT
             echo "s2_access_token=" >> $GITHUB_OUTPUT
             echo "resend_api_key=" >> $GITHUB_OUTPUT
+            echo "server_ip=" >> $GITHUB_OUTPUT
+            echo "ssh_private_key=" >> $GITHUB_OUTPUT
           fi
+
+      - name: Pull bentotools on server
+        if: steps.secrets.outputs.server_ip != '' && steps.secrets.outputs.ssh_private_key != ''
+        env:
+          SERVER_IP: ${{ steps.secrets.outputs.server_ip }}
+          SSH_PRIVATE_KEY: ${{ steps.secrets.outputs.ssh_private_key }}
+          BRANCH: ${{ steps.parse_tools_root.outputs.branch || steps.default_branch.outputs.branch }}
+        run: |
+          echo "🔄 Pulling bentotools directory on server..."
+          
+          # Setup SSH
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SERVER_IP" >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          # Pull latest changes on server
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no root@"$SERVER_IP" << 'EOF'
+            if [ -d /opt/bento-sync/.git ]; then
+              cd /opt/bento-sync
+              git fetch origin
+              git checkout "${BRANCH}" 2>/dev/null || git checkout -b "${BRANCH}" "origin/${BRANCH}" 2>/dev/null || true
+              git pull origin "${BRANCH}" || echo "⚠️ Could not pull latest changes"
+              
+              # Reinstall dependencies if package.json changed
+              if [ -f package.json ]; then
+                bun install || echo "⚠️ Could not install dependencies"
+              fi
+            else
+              echo "⚠️ /opt/bento-sync/.git not found, skipping pull"
+            fi
+          EOF
+          
+          # Cleanup
+          rm -f ~/.ssh/deploy_key
 
       - name: Compile and sync Bento streams
         env:
