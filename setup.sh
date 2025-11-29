@@ -472,26 +472,19 @@ pipeline:
   processors:
     # Ensure payload is in the correct format for Resend API
     # Data from S2 should already be parsed JSON (Bento's s2 input parses JSON automatically)
+    # The transform_email stream already outputs the correct format, so just pass it through
+    # But ensure 'to' is always an array (Resend requirement)
     - bloblang: |
-        # The data from S2 should already be a parsed JSON object
-        # Ensure all required fields are present for Resend API
-        # Resend expects: from (string), to (array of strings), subject (string), html (string)
-        
-        # Handle 'to' field - ensure it's an array
-        let to_array = if this.to.type() == "array" {
+        # Pass through all fields, but ensure 'to' is an array
+        root = this
+        # If 'to' is not an array, convert it
+        root.to = if this.to.type() == "array" {
           this.to
         } else if this.to.type() == "string" {
           [this.to]
         } else {
-          []
+          this.to | []
         }
-        
-        # Build the payload ensuring all fields are present
-        # Use the to_array if it's not empty, otherwise keep original or use empty array
-        root.from = this.from | ""
-        root.to = if $to_array.type() == "array" { $to_array } else { this.to | [] }
-        root.subject = this.subject | ""
-        root.html = this.html | ""
 
 output:
   http_client:
