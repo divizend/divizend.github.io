@@ -105,10 +105,9 @@ fi
 # 5. Configure Caddy
 echo -e "${BLUE}Configuring Caddy for ${STREAM_DOMAIN}...${NC}"
 EXPECTED_CADDYFILE="/tmp/caddyfile.expected"
-# Export STREAM_DOMAIN for envsubst
-export STREAM_DOMAIN
-# Use template file with variable substitution (only STREAM_DOMAIN)
-envsubst '${STREAM_DOMAIN}' < "${TEMPLATE_DIR}/caddy/Caddyfile.template" > "$EXPECTED_CADDYFILE"
+# Use template file with variable substitution using sed
+sed -e "s|\${STREAM_DOMAIN}|${STREAM_DOMAIN}|g" \
+    "${TEMPLATE_DIR}/caddy/Caddyfile.template" > "$EXPECTED_CADDYFILE"
 
 # Check if Caddyfile needs updating (idempotent)
 CADDYFILE_CHANGED=false
@@ -386,18 +385,51 @@ fi
 # Copy and process template files with variable substitution
 mkdir -p /etc/bento/streams
 
-# Process Bento config files
-envsubst < "${TEMPLATE_DIR}/bento/config.yaml" > /etc/bento/config.yaml
-envsubst < "${TEMPLATE_DIR}/bento/resources.yaml" > /etc/bento/resources.yaml
-envsubst < "${TEMPLATE_DIR}/bento/streams/ingest_email.yaml" > /etc/bento/streams/ingest_email.yaml
-envsubst < "${TEMPLATE_DIR}/bento/streams/transform_email.yaml" > /etc/bento/streams/transform_email.yaml
-envsubst < "${TEMPLATE_DIR}/bento/streams/send_email.yaml" > /etc/bento/streams/send_email.yaml
+# Process Bento config files using sed to replace only specific variables
+# This avoids issues with envsubst replacing bloblang $ variables
+sed -e "s|\${S2_BASIN}|${S2_BASIN}|g" \
+    -e "s|\${BASE_DOMAIN}|${BASE_DOMAIN}|g" \
+    -e "s|\${S2_ACCESS_TOKEN}|${S2_ACCESS_TOKEN}|g" \
+    -e "s|\${RESEND_API_KEY}|${RESEND_API_KEY}|g" \
+    -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
+    "${TEMPLATE_DIR}/bento/config.yaml" > /etc/bento/config.yaml
+
+sed -e "s|\${S2_BASIN}|${S2_BASIN}|g" \
+    -e "s|\${BASE_DOMAIN}|${BASE_DOMAIN}|g" \
+    -e "s|\${S2_ACCESS_TOKEN}|${S2_ACCESS_TOKEN}|g" \
+    -e "s|\${RESEND_API_KEY}|${RESEND_API_KEY}|g" \
+    -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
+    "${TEMPLATE_DIR}/bento/resources.yaml" > /etc/bento/resources.yaml
+
+sed -e "s|\${S2_BASIN}|${S2_BASIN}|g" \
+    -e "s|\${BASE_DOMAIN}|${BASE_DOMAIN}|g" \
+    -e "s|\${S2_ACCESS_TOKEN}|${S2_ACCESS_TOKEN}|g" \
+    -e "s|\${RESEND_API_KEY}|${RESEND_API_KEY}|g" \
+    -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
+    "${TEMPLATE_DIR}/bento/streams/ingest_email.yaml" > /etc/bento/streams/ingest_email.yaml
+
+sed -e "s|\${S2_BASIN}|${S2_BASIN}|g" \
+    -e "s|\${BASE_DOMAIN}|${BASE_DOMAIN}|g" \
+    -e "s|\${S2_ACCESS_TOKEN}|${S2_ACCESS_TOKEN}|g" \
+    -e "s|\${RESEND_API_KEY}|${RESEND_API_KEY}|g" \
+    -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
+    "${TEMPLATE_DIR}/bento/streams/transform_email.yaml" > /etc/bento/streams/transform_email.yaml
+
+sed -e "s|\${S2_BASIN}|${S2_BASIN}|g" \
+    -e "s|\${BASE_DOMAIN}|${BASE_DOMAIN}|g" \
+    -e "s|\${S2_ACCESS_TOKEN}|${S2_ACCESS_TOKEN}|g" \
+    -e "s|\${RESEND_API_KEY}|${RESEND_API_KEY}|g" \
+    -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
+    "${TEMPLATE_DIR}/bento/streams/send_email.yaml" > /etc/bento/streams/send_email.yaml
 
 # 8. Systemd Service Setup
 echo -e "${BLUE}Configuring Systemd service...${NC}"
-envsubst '${TOOLS_ROOT}' < "${TEMPLATE_DIR}/systemd/bento.service" > /etc/systemd/system/bento.service
-envsubst '${TOOLS_ROOT}' < "${TEMPLATE_DIR}/systemd/bento-sync.service" > /etc/systemd/system/bento-sync.service
-envsubst '${TOOLS_ROOT}' < "${TEMPLATE_DIR}/systemd/bento-sync.timer" > /etc/systemd/system/bento-sync.timer
+sed -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
+    "${TEMPLATE_DIR}/systemd/bento.service" > /etc/systemd/system/bento.service
+sed -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
+    "${TEMPLATE_DIR}/systemd/bento-sync.service" > /etc/systemd/system/bento-sync.service
+sed -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
+    "${TEMPLATE_DIR}/systemd/bento-sync.timer" > /etc/systemd/system/bento-sync.timer
 
 # 9. Install Terraform and Setup Bento Tools Sync Daemon
 echo -e "${BLUE}Setting up Bento Tools Sync Daemon...${NC}"
