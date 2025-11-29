@@ -326,6 +326,80 @@ systemctl daemon-reload
 systemctl enable bento
 systemctl restart bento
 
+# 10. Health Checks
+echo -e "\n${BLUE}Running health checks...${NC}"
+HEALTH_FAILED=false
+
+# Check Caddy service
+if systemctl is-active --quiet caddy; then
+    echo -e "${GREEN}✓ Caddy service is running${NC}"
+else
+    echo -e "${RED}✗ Caddy service is not running${NC}"
+    HEALTH_FAILED=true
+fi
+
+# Check Bento service
+if systemctl is-active --quiet bento; then
+    echo -e "${GREEN}✓ Bento service is running${NC}"
+else
+    echo -e "${RED}✗ Bento service is not running${NC}"
+    HEALTH_FAILED=true
+fi
+
+# Check Caddy is listening on port 443
+if ss -tuln | grep -q ':443 '; then
+    echo -e "${GREEN}✓ Caddy is listening on port 443${NC}"
+else
+    echo -e "${RED}✗ Caddy is not listening on port 443${NC}"
+    HEALTH_FAILED=true
+fi
+
+# Check Bento is listening on port 4195
+if ss -tuln | grep -q ':4195 '; then
+    echo -e "${GREEN}✓ Bento is listening on port 4195${NC}"
+else
+    echo -e "${RED}✗ Bento is not listening on port 4195${NC}"
+    HEALTH_FAILED=true
+fi
+
+# Check DNS resolution
+if [[ -n "$SERVER_IP" ]]; then
+    RESOLVED_IP=""
+    if command -v dig > /dev/null 2>&1; then
+        RESOLVED_IP=$(dig +short ${STREAM_DOMAIN} @8.8.8.8 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+    elif command -v host > /dev/null 2>&1; then
+        RESOLVED_IP=$(host ${STREAM_DOMAIN} 8.8.8.8 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
+    fi
+    if [[ -n "$RESOLVED_IP" ]] && [[ "$RESOLVED_IP" == "$SERVER_IP" ]]; then
+        echo -e "${GREEN}✓ DNS is correctly configured${NC}"
+    else
+        echo -e "${YELLOW}⚠ DNS may not be fully propagated (resolved to: ${RESOLVED_IP:-not found})${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠ Could not verify DNS (server IP not detected)${NC}"
+fi
+
+# Check HTTPS endpoint (with timeout)
+if curl -s --max-time 5 -o /dev/null -w "%{http_code}" https://${STREAM_DOMAIN} > /dev/null 2>&1; then
+    HTTP_CODE=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" https://${STREAM_DOMAIN} 2>/dev/null)
+    if [[ "$HTTP_CODE" =~ ^[23] ]]; then
+        echo -e "${GREEN}✓ HTTPS endpoint is reachable (HTTP ${HTTP_CODE})${NC}"
+    else
+        echo -e "${YELLOW}⚠ HTTPS endpoint returned HTTP ${HTTP_CODE}${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠ HTTPS endpoint is not reachable yet${NC}"
+fi
+
+if [ "$HEALTH_FAILED" = true ]; then
+    echo -e "\n${RED}Some health checks failed. Please check the service status:${NC}"
+    echo -e "  systemctl status caddy"
+    echo -e "  systemctl status bento"
+    echo -e "  journalctl -u caddy -n 20"
+    echo -e "  journalctl -u bento -n 20"
+    exit 1
+fi
+
 echo -e "\n${GREEN}==============================================${NC}"
 echo -e "${GREEN}       Setup Complete Successfully!           ${NC}"
 echo -e "${GREEN}==============================================${NC}"
