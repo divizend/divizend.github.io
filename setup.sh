@@ -706,14 +706,22 @@ else
     
     # Use env var or prompt for selection
     if [[ -z "$TEST_DOMAIN" ]]; then
-        echo -e "${YELLOW}Select a domain to use for the test email (1-${DOMAIN_INDEX}):${NC}"
-        read -p "Enter domain number: " SELECTED_NUM < /dev/tty
-        if [[ -z "$SELECTED_NUM" ]] || ! [[ "$SELECTED_NUM" =~ ^[0-9]+$ ]] || [ "$SELECTED_NUM" -lt 1 ] || [ "$SELECTED_NUM" -gt "$DOMAIN_INDEX" ]; then
-            echo -e "${YELLOW}Invalid selection, skipping test email.${NC}"
-            echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+        if [ -t 0 ]; then
+            # stdin is a terminal, we can prompt
+            echo -e "${YELLOW}Select a domain to use for the test email (1-${DOMAIN_INDEX}):${NC}"
+            read -p "Enter domain number: " SELECTED_NUM < /dev/tty
+            if [[ -z "$SELECTED_NUM" ]] || ! [[ "$SELECTED_NUM" =~ ^[0-9]+$ ]] || [ "$SELECTED_NUM" -lt 1 ] || [ "$SELECTED_NUM" -gt "$DOMAIN_INDEX" ]; then
+                echo -e "${YELLOW}Invalid selection, skipping test email.${NC}"
+                echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+            else
+                TEST_DOMAIN="${DOMAIN_ARRAY[$SELECTED_NUM]}"
+                echo -e "${GREEN}Selected domain: ${TEST_DOMAIN}${NC}"
+            fi
         else
-            TEST_DOMAIN="${DOMAIN_ARRAY[$SELECTED_NUM]}"
-            echo -e "${GREEN}Selected domain: ${TEST_DOMAIN}${NC}"
+            # stdin is not a terminal (e.g., running via SSH), skip interactive prompt
+            echo -e "${YELLOW}Multiple domains detected but no TEST_DOMAIN env var set and stdin is not a terminal.${NC}"
+            echo -e "${YELLOW}Skipping test email. Set TEST_DOMAIN env var to specify which domain to use.${NC}"
+            echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
         fi
     else
         echo -e "${GREEN}Using TEST_DOMAIN from environment: ${TEST_DOMAIN}${NC}"
