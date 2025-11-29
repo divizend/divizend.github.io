@@ -258,17 +258,6 @@ rm -f /etc/bento/config.yaml
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
 cat <<EOF > /etc/bento/streams/ingest_email.yaml
-output_resources:
-  - label: s2_inbox_writer
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      path: 'inbox/reverser/\${!uuid_v4()}.json'
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-
     input:
       http_server:
     path: /webhooks/resend
