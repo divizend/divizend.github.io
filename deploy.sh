@@ -69,8 +69,17 @@ fi
 # Load secrets from encrypted file
 load_secrets_from_sops
 
-# Get GitHub Personal Access Token for triggering sync
-get_config_value GITHUB_PAT "Enter GitHub Personal Access Token (with repo scope)" "GitHub PAT is required for triggering sync" ""
+# Get GitHub Personal Access Token for triggering sync (optional)
+# If not set, sync will still work but won't be automatically triggered after deployment
+if [[ -z "$GITHUB_PAT" ]]; then
+    load_secrets_from_sops
+    if [[ -z "$GITHUB_PAT" ]] && [ -t 0 ]; then
+        read -p "Enter GitHub Personal Access Token (with repo scope, optional for sync trigger): " GITHUB_PAT < /dev/tty || true
+        if [[ -n "$GITHUB_PAT" ]]; then
+            update_sops_secret "GITHUB_PAT" "$GITHUB_PAT"
+        fi
+    fi
+fi
 
 if ! git diff --quiet setup.sh; then
     echo "[INFO] Committing and pushing setup.sh..."
