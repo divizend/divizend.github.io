@@ -237,55 +237,9 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# In streams mode, resources are defined in config.yaml and referenced in stream files
+# In streams mode, config.yaml is minimal - resources are defined inline in stream files
 cat <<EOF > /etc/bento/config.yaml
-http:
-  enabled: true
-  address: 0.0.0.0:4195
-
-input_resources:
-  - label: s2_inbox_reader
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      prefix: inbox/
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-      delete_objects: true
-
-  - label: s2_outbox_reader
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      prefix: outbox/
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-      delete_objects: true
-
-output_resources:
-  - label: s2_inbox_writer
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      path: 'inbox/\${!this.data.to[0].split("@")[0]}/\${!uuid_v4()}.json'
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-
-  - label: s2_outbox_writer
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      path: 'outbox/\${!uuid_v4()}.json'
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
+{}
 EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
@@ -344,7 +298,14 @@ pipeline:
         }
 
 output:
-  resource: s2_inbox_writer
+  aws_s3:
+    bucket: ${BASE_DOMAIN}
+    path: 'inbox/\${!this.data.to[0].split("@")[0]}/\${!uuid_v4()}.json'
+    credentials:
+      id: "${S2_ACCESS_TOKEN}"
+      secret: "${S2_ACCESS_TOKEN}"
+    endpoint: "https://s2.dev/v1/s3"
+    region: "us-east-1"
 EOF
 
 # Stream 2: Transform - S2 Inbox -> Apply Tool Logic from bentotools/index.ts -> S2 Outbox
@@ -352,7 +313,15 @@ EOF
 # The inbox name is extracted from the email's "to" field, and the corresponding tool function is called
 cat <<EOF > /etc/bento/streams/transform_email.yaml
 input:
-  resource: s2_inbox_reader
+  aws_s3:
+    bucket: ${BASE_DOMAIN}
+    prefix: inbox/
+    credentials:
+      id: "${S2_ACCESS_TOKEN}"
+      secret: "${S2_ACCESS_TOKEN}"
+    endpoint: "https://s2.dev/v1/s3"
+    region: "us-east-1"
+    delete_objects: true
 
 pipeline:
   processors:
@@ -385,13 +354,28 @@ pipeline:
         root.html = "<p>Here is your transformed text:</p><blockquote>" + \$transformed_text + "</blockquote>"
 
 output:
-  resource: s2_outbox_writer
+  aws_s3:
+    bucket: ${BASE_DOMAIN}
+    path: 'outbox/\${!uuid_v4()}.json'
+    credentials:
+      id: "${S2_ACCESS_TOKEN}"
+      secret: "${S2_ACCESS_TOKEN}"
+    endpoint: "https://s2.dev/v1/s3"
+    region: "us-east-1"
 EOF
 
 # Stream 3: Send - S2 Outbox -> Resend API
 cat <<EOF > /etc/bento/streams/send_email.yaml
 input:
-  resource: s2_outbox_reader
+  aws_s3:
+    bucket: ${BASE_DOMAIN}
+    prefix: outbox/
+    credentials:
+      id: "${S2_ACCESS_TOKEN}"
+      secret: "${S2_ACCESS_TOKEN}"
+    endpoint: "https://s2.dev/v1/s3"
+    region: "us-east-1"
+    delete_objects: true
 
 output:
   http_client:
@@ -415,7 +399,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/bento -c /etc/bento/config.yaml streams /etc/bento/streams
+ExecStart=/usr/bin/bento streams /etc/bento/streams
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
