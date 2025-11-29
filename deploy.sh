@@ -85,9 +85,27 @@ echo "[DEPLOY] Running setup on server..."
 # Get SERVER_IP using common function (will load from encrypted secrets if available)
 get_config_value SERVER_IP "Enter Server IP address" "SERVER_IP is required"
 
+# Remove server IP from known_hosts to ensure clean state (silently skip if not present)
+KNOWN_HOSTS_FILE="$HOME/.ssh/known_hosts"
+if [[ -f "$KNOWN_HOSTS_FILE" ]] && grep -q "${SERVER_IP}" "$KNOWN_HOSTS_FILE" 2>/dev/null; then
+    echo "[DEPLOY] Removing ${SERVER_IP} from known_hosts for clean connection..."
+    # Create backup before modifying
+    BACKUP_FILE=$(backup_file "$KNOWN_HOSTS_FILE" 2>/dev/null || echo "")
+    # Remove lines containing the IP address (works on both macOS and Linux)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "/${SERVER_IP}/d" "$KNOWN_HOSTS_FILE" 2>/dev/null || true
+    else
+        sed -i "/${SERVER_IP}/d" "$KNOWN_HOSTS_FILE" 2>/dev/null || true
+    fi
+    # Remove backup if validation passed (no lines containing SERVER_IP remain)
+    if ! grep -q "${SERVER_IP}" "$KNOWN_HOSTS_FILE" 2>/dev/null; then
+        [[ -n "$BACKUP_FILE" ]] && [[ -f "$BACKUP_FILE" ]] && rm -f "$BACKUP_FILE" 2>/dev/null || true
+    fi
+fi
+
 # Get or generate server's age public key and add it to .sops.yaml before re-encrypting
 echo "[DEPLOY] Getting server's age public key..."
-# Add server to known_hosts to avoid interactive prompt
+# Add server to known_hosts to avoid interactive prompt (will be added automatically by ssh-keyscan)
 ssh-keyscan -H ${SERVER_IP} >> ~/.ssh/known_hosts 2>/dev/null || true
 SERVER_AGE_KEY_FILE="/root/.age-key-server"
 
