@@ -85,15 +85,49 @@ echo "[DEPLOY] Running setup on server..."
 # Get SERVER_IP using common function (will load from encrypted secrets if available)
 get_config_value SERVER_IP "Enter Server IP address" "SERVER_IP is required"
 
-# Get or generate server's public key and add it to .sops.yaml before re-encrypting
+# Get or generate server's age public key and add it to .sops.yaml before re-encrypting
 echo "[DEPLOY] Getting server's age public key..."
 # Add server to known_hosts to avoid interactive prompt
 ssh-keyscan -H ${SERVER_IP} >> ~/.ssh/known_hosts 2>/dev/null || true
 SERVER_AGE_KEY_FILE="/root/.age-key-server"
-SERVER_PUBLIC_KEY=$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@${SERVER_IP} "if [ -f $SERVER_AGE_KEY_FILE ]; then grep '^# public key:' $SERVER_AGE_KEY_FILE | cut -d' ' -f4; else age-keygen -o $SERVER_AGE_KEY_FILE 2>&1 | grep '^Public key:' | cut -d' ' -f3; fi" 2>/dev/null || true)
 
-if [[ -z "$SERVER_PUBLIC_KEY" ]]; then
+# Try to get or generate the server's age keypair
+# First check if age is installed, if not install it
+# Then check if key exists, if not generate it
+SERVER_PUBLIC_KEY=$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@${SERVER_IP} "
+    # Install age if not available
+    if ! command -v age-keygen &> /dev/null; then
+        # Try to install age (Ubuntu/Debian)
+        if command -v apt-get &> /dev/null; then
+            apt-get update -qq > /dev/null 2>&1
+            apt-get install -y age > /dev/null 2>&1
+        # Try to install age (other systems - download binary)
+        elif command -v curl &> /dev/null; then
+            AGE_VERSION=\$(curl -s https://api.github.com/repos/FiloSottile/age/releases/latest | grep -o '\"tag_name\": \"[^\"]*' | cut -d'\"' -f4)
+            if [ -n \"\$AGE_VERSION\" ]; then
+                curl -L \"https://github.com/FiloSottile/age/releases/download/\${AGE_VERSION}/age-\${AGE_VERSION}-linux-amd64.tar.gz\" -o /tmp/age.tar.gz 2>/dev/null
+                tar -xzf /tmp/age.tar.gz -C /tmp 2>/dev/null
+                mv /tmp/age/age* /usr/local/bin/ 2>/dev/null || true
+                rm -rf /tmp/age* 2>/dev/null
+            fi
+        fi
+    fi
+    
+    # Generate keypair if it doesn't exist
+    if [ ! -f $SERVER_AGE_KEY_FILE ]; then
+        age-keygen -o $SERVER_AGE_KEY_FILE 2>&1
+    fi
+    
+    # Extract public key
+    if [ -f $SERVER_AGE_KEY_FILE ]; then
+        grep '^# public key:' $SERVER_AGE_KEY_FILE | cut -d' ' -f4
+    fi
+" 2>&1)
+
+# Check if we got a valid public key (starts with age1)
+if [[ -z "$SERVER_PUBLIC_KEY" ]] || [[ ! "$SERVER_PUBLIC_KEY" =~ ^age1 ]]; then
     echo "[ERROR] Could not get server's public key" >&2
+    echo "[ERROR] SSH output: $SERVER_PUBLIC_KEY" >&2
     exit 1
 fi
 
