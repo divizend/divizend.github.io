@@ -478,12 +478,11 @@ input:
 
 pipeline:
   processors:
-    # Ensure the message is properly formatted as JSON for http_client
-    # S2 input parses JSON, but http_client needs it serialized
+    # S2 input may return data as string or parsed JSON
+    # Ensure it's properly parsed and formatted for Resend API
     - bloblang: |
-        # The data from S2 is already a parsed JSON object
-        # Just ensure it's structured correctly for Resend API
-        root = this
+        # If data is a string, parse it as JSON; otherwise use as-is
+        root = if this.type() == "string" { this.parse_json() } else { this }
 
 output:
   http_client:
