@@ -159,6 +159,25 @@ async function setSecret(key: string, value: string): Promise<void> {
   }
 }
 
+// Delete a secret
+async function deleteSecret(key: string): Promise<void> {
+  if (!(await checkSops())) process.exit(1);
+
+  try {
+    const secrets = await decryptSecrets();
+    if (!(key in secrets)) {
+      console.error(`${RED}Error: Secret '${key}' not found${NC}`);
+      process.exit(1);
+    }
+    delete secrets[key];
+    await encryptSecrets(secrets);
+    console.log(`${GREEN}✓ Deleted ${key}${NC}`);
+  } catch (error: any) {
+    console.error(`${RED}Error: ${error.message}${NC}`);
+    process.exit(1);
+  }
+}
+
 // List all secrets (keys only)
 async function listSecrets(): Promise<void> {
   if (!(await checkSops())) process.exit(1);
