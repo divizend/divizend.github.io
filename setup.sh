@@ -964,17 +964,20 @@ set +e  # Temporarily disable exit on error for API calls
 DOMAINS_JSON=$(curl -s --max-time 10 -H "Authorization: Bearer ${RESEND_API_KEY}" https://api.resend.com/domains 2>/dev/null)
 # Check if the response is valid JSON and has data array
 if echo "$DOMAINS_JSON" | jq -e '.data' >/dev/null 2>&1; then
-    DOMAINS_COUNT=$(echo "$DOMAINS_JSON" | jq -r '.data | length' 2>/dev/null || echo "0")
+    DOMAINS_COUNT=$(echo "$DOMAINS_JSON" | jq -r '.data | length' 2>/dev/null)
+    # Handle case where jq returns "null" as a string
+    if [ "$DOMAINS_COUNT" = "null" ] || [ -z "$DOMAINS_COUNT" ]; then
+        DOMAINS_COUNT="0"
+    fi
 else
-    DOMAINS_COUNT="0"
-fi
-# Handle case where jq returns "null" as a string or empty
-if [ "$DOMAINS_COUNT" = "null" ] || [ -z "$DOMAINS_COUNT" ]; then
     DOMAINS_COUNT="0"
 fi
 set -e  # Re-enable exit on error
 
-if [ "$DOMAINS_COUNT" = "0" ]; then
+# Convert to integer for comparison (handles string "2" vs integer 2)
+DOMAINS_COUNT=$((DOMAINS_COUNT + 0))
+
+if [ "$DOMAINS_COUNT" -eq 0 ]; then
     echo -e "${YELLOW}No domains detected in Resend account, skipping test email.${NC}"
     echo -e "\nSend a test email to any inbox at ${YELLOW}<tool_name>@${BASE_DOMAIN}${NC} to verify."
     SETUP_SUCCESS=true
