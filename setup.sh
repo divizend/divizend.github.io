@@ -32,7 +32,9 @@ else
     echo -e "${GREEN}Using BASE_DOMAIN from environment: ${BASE_DOMAIN}${NC}"
 fi
 STREAM_DOMAIN="streams.${BASE_DOMAIN}"
+SERVER_IP=$(hostname -I | awk '{print $1}' || curl -s ifconfig.me || echo "YOUR_SERVER_IP")
 echo -e "Service will be deployed at: ${GREEN}https://${STREAM_DOMAIN}${NC}"
+echo -e "${YELLOW}DNS: Create an A record: ${STREAM_DOMAIN} -> ${SERVER_IP}${NC}"
 
 # S2 Configuration
 if [[ -z "$S2_ACCESS_TOKEN" ]]; then
