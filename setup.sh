@@ -344,7 +344,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/bento streams --chilled /etc/bento/streams
+ExecStart=/usr/bin/bento streams /etc/bento/streams
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
@@ -510,14 +510,6 @@ if [ "$BENTO_FAILED" = true ]; then
         HEALTH_FAILED=false
     else
         echo -e "${RED}Bento service still not running after fix attempt${NC}"
-        # Try one more time with --chilled flag if not already using it
-        if ! grep -q "streams --chilled" /etc/systemd/system/bento.service; then
-            echo -e "${YELLOW}Updating service to use --chilled flag...${NC}"
-            sed -i 's|ExecStart=/usr/bin/bento streams|ExecStart=/usr/bin/bento streams --chilled|' /etc/systemd/system/bento.service
-            systemctl daemon-reload
-systemctl restart bento
-            sleep 5
-        fi
         
         # Final check
         if systemctl is-active --quiet bento && ss -tuln | grep -q ':4195 '; then
@@ -541,11 +533,6 @@ if [ "$BENTO_FAILED" = true ] || ! systemctl is-active --quiet bento || ! ss -tu
     systemctl stop bento 2>/dev/null || true
     sleep 2
     
-    # Ensure --chilled flag is in service file
-    if ! grep -q "streams --chilled" /etc/systemd/system/bento.service; then
-        sed -i 's|ExecStart=/usr/bin/bento streams|ExecStart=/usr/bin/bento streams --chilled|' /etc/systemd/system/bento.service
-        systemctl daemon-reload
-    fi
     
     systemctl start bento
     sleep 5
@@ -824,10 +811,10 @@ fi
 
 # Show success message only at the very end if everything passed
 if [ "$SETUP_SUCCESS" = true ] && [ "$HEALTH_FAILED" != true ]; then
-echo -e "\n${GREEN}==============================================${NC}"
-echo -e "${GREEN}       Setup Complete Successfully!           ${NC}"
-echo -e "${GREEN}==============================================${NC}"
-echo -e "1. HTTPS is active at: https://${STREAM_DOMAIN}"
+    echo -e "\n${GREEN}==============================================${NC}"
+    echo -e "${GREEN}       Setup Complete Successfully!           ${NC}"
+    echo -e "${GREEN}==============================================${NC}"
+    echo -e "1. HTTPS is active at: https://${STREAM_DOMAIN}"
     echo -e "2. Webhook endpoint:   https://${STREAM_DOMAIN}/webhooks/resend"
-echo -e "3. Logic:              Email -> Webhook -> S2 -> Reverse -> Resend"
+    echo -e "3. Logic:              Email -> Webhook -> S2 -> Reverse -> Resend"
 fi
