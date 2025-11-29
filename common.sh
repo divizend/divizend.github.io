@@ -168,48 +168,51 @@ get_config_value() {
     local was_prompted=false
     local script_dir=$(get_script_dir)
     
-    # First, try to load from encrypted secrets if not already in environment
-    if [[ -z "$var_value" ]]; then
-        load_secrets_from_sops
-        var_value="${!var_name}"
+    # If variable already has a value, use it immediately
+    if [[ -n "$var_value" ]]; then
+        eval "$var_name=\"$var_value\""
+        return 0
     fi
     
-    if [[ -z "$var_value" ]]; then
-        if [[ -n "$default_value" ]]; then
-            # Use default value if provided
-            var_value="$default_value"
-            echo -e "${GREEN}Using default ${var_name}: ${var_value}${NC}"
-        elif [ -t 0 ]; then # Check if stdin is a terminal
-            read -p "$prompt_msg: " var_value < /dev/tty
-            if [[ -z "$var_value" ]] && [[ -n "$error_msg" ]]; then
-                echo -e "${RED}${error_msg}${NC}" >&2
-                exit 1
-            fi
-            if [[ -n "$var_value" ]]; then
-                was_prompted=true
-            fi
-        else
-            # Non-interactive, variable not set
-            if [[ -n "$error_msg" ]]; then
-                echo -e "${RED}Error: ${var_name} is required and not set in non-interactive mode.${NC}" >&2
-                exit 1
-            fi
-            # If error_msg is empty, allow empty value (optional variable)
-            var_value=""
+    # Try to load from encrypted secrets
+    load_secrets_from_sops
+    var_value="${!var_name}"
+    
+    # If variable now has a value from secrets, use it immediately
+    if [[ -n "$var_value" ]]; then
+        eval "$var_name=\"$var_value\""
+        return 0
+    fi
+    
+    # Variable is not set, need to get it from user or default
+    if [[ -n "$default_value" ]]; then
+        # Use default value if provided
+        var_value="$default_value"
+        echo -e "${GREEN}Using default ${var_name}: ${var_value}${NC}"
+    elif [ -t 0 ]; then # Check if stdin is a terminal
+        read -p "$prompt_msg: " var_value < /dev/tty
+        if [[ -z "$var_value" ]] && [[ -n "$error_msg" ]]; then
+            echo -e "${RED}${error_msg}${NC}" >&2
+            exit 1
+        fi
+        if [[ -n "$var_value" ]]; then
+            was_prompted=true
         fi
     else
-        if [[ -n "${SOPS_AGE_KEY:-}${SOPS_AGE_KEY_FILE:-}" ]]; then
-            echo -e "${GREEN}Using ${var_name} from encrypted secrets${NC}"
-        else
-            echo -e "${GREEN}Using ${var_name} from environment: ${var_value}${NC}"
+        # Non-interactive, variable not set
+        if [[ -n "$error_msg" ]]; then
+            echo -e "${RED}Error: ${var_name} is required and not set in non-interactive mode.${NC}" >&2
+            exit 1
         fi
+        # If error_msg is empty, allow empty value (optional variable)
+        var_value=""
     fi
     
     # Export the value back to the variable name
     eval "$var_name=\"$var_value\""
     
-    # If value was prompted (user entered it manually), save to SOPS
-    if [[ "$was_prompted" = true ]]; then
+    # If value was prompted (user entered it manually) and is not empty, save to SOPS
+    if [[ "$was_prompted" = true ]] && [[ -n "$var_value" ]]; then
         update_sops_secret "$var_name" "$var_value"
     fi
 }
