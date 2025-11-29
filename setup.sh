@@ -249,7 +249,7 @@ output_resources:
   - label: s2_inbox_writer
     aws_s3:
       bucket: ${BASE_DOMAIN}
-      path: 'inbox/reverser/\${!uuid_v4()}.json'
+      path: 'inbox/\${!this.data.to[0].split("@")[0]}/\${!uuid_v4()}.json'
       credentials:
         id: "${S2_ACCESS_TOKEN}"
         secret: "${S2_ACCESS_TOKEN}"
@@ -273,14 +273,14 @@ output:
 EOF
 
 # Stream 2: Transform - S2 Inbox -> Apply Tool Logic from bentotools/index.ts -> S2 Outbox
-# Business logic is defined in ${TOOLS_ROOT}/index.ts (reverser function)
-# This bloblang implementation matches that function exactly
+# Business logic is defined in ${TOOLS_ROOT}/index.ts
+# The inbox name is extracted from the email's "to" field, and the corresponding tool function is called
 cat <<EOF > /etc/bento/streams/transform_email.yaml
 input_resources:
   - label: s2_inbox_reader
     aws_s3:
       bucket: ${BASE_DOMAIN}
-      prefix: inbox/reverser/
+      prefix: inbox/
       credentials:
         id: "${S2_ACCESS_TOKEN}"
         secret: "${S2_ACCESS_TOKEN}"
@@ -309,24 +309,28 @@ pipeline:
         let original_text = this.data.text | ""
         let sender = this.data.from
         let subject = this.data.subject
+        let recipient_email = this.data.to[0] | ""
 
-        # Automatically determine receiver (original sender) and sender (reverser@domain)
-        let receiver = \$sender
+        # Extract inbox name from recipient email (e.g., "reverser@domain.com" -> "reverser")
+        let inbox_name = \$recipient_email.split("@")[0] | ""
         let sender_domain = "${BASE_DOMAIN}"
-        let sender_email = "reverser@" + \$sender_domain
+        let sender_email = \$inbox_name + "@" + \$sender_domain
 
-        # Business Logic: Call reverser function from TOOLS_ROOT/index.ts
-        # The reverser function is defined in ${TOOLS_ROOT}/index.ts
-        # This ensures the invariant: reverser@domain replies with the return value of the "reverser" function
-        # The tool definition at ${TOOLS_ROOT}/index.ts exports: reverser: (email: Email) => email.text!.split("").reverse().join("")
-        # This bloblang implementation matches that function exactly
-        let reversed_text = \$original_text.split("").reverse().join("")
+        # Automatically determine receiver (original sender)
+        let receiver = \$sender
+
+        # Business Logic: Call tool function from TOOLS_ROOT/index.ts
+        # The tool function name matches the inbox name (e.g., inbox "reverser" calls "reverser" function)
+        # The tool definition at ${TOOLS_ROOT}/index.ts exports functions that match inbox names
+        # This bloblang implementation matches the tool function exactly
+        # For the "reverser" tool: reverser: (email: Email) => email.text!.split("").reverse().join("")
+        let transformed_text = \$original_text.split("").reverse().join("")
 
         # Construct Resend API Payload with automatically determined emails
-        root.from = "Reverser <" + \$sender_email + ">"
+        root.from = \$inbox_name.capitalize() + " <" + \$sender_email + ">"
         root.to = [\$receiver]
         root.subject = "Re: " + \$subject
-        root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
+        root.html = "<p>Here is your transformed text:</p><blockquote>" + \$transformed_text + "</blockquote>"
 
 output:
   resource: s2_outbox_writer
@@ -682,6 +686,7 @@ fi
 # Function to test a Bento tool
 # Usage: test_tool TOOL_NAME INPUT_TEXT EXPECTED_OUTPUT
 # Example: test_tool reverser "Hello" "olleH"
+# The tool name determines the inbox email address: ${TOOL_NAME}@${BASE_DOMAIN}
 test_tool() {
     local TOOL_NAME="$1"
     local INPUT_TEXT="$2"
@@ -707,7 +712,7 @@ test_tool() {
         fi
     fi
     
-    local TEST_RECEIVER="reverser@${BASE_DOMAIN}"
+    local TEST_RECEIVER="${TOOL_NAME}@${BASE_DOMAIN}"
     local TEST_SUBJECT="Test: ${TOOL_NAME} - ${INPUT_TEXT}"
     
     echo -e "${BLUE}Testing tool '${TOOL_NAME}': sending '${INPUT_TEXT}' to ${TEST_RECEIVER}, expecting '${EXPECTED_OUTPUT}'...${NC}"
@@ -775,7 +780,7 @@ set -e  # Re-enable exit on error
 
 if [ "$DOMAINS_COUNT" = "0" ] || [ -z "$DOMAINS_COUNT" ] || [ "$DOMAINS_COUNT" = "null" ]; then
     echo -e "${YELLOW}No domains detected in Resend account, skipping test email.${NC}"
-    echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+    echo -e "\nSend a test email to any inbox at ${YELLOW}<tool_name>@${BASE_DOMAIN}${NC} to verify."
     SETUP_SUCCESS=true
 else
     # Get sender email from env var or prompt user
@@ -785,27 +790,31 @@ else
             read -p "Sender email: " TEST_SENDER < /dev/tty
             if [[ -z "$TEST_SENDER" ]]; then
                 echo -e "${YELLOW}No sender email provided, skipping test email.${NC}"
-                echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+                echo -e "\nSend a test email to any inbox at ${YELLOW}<tool_name>@${BASE_DOMAIN}${NC} to verify."
                 SETUP_SUCCESS=true
             fi
         else
             echo -e "${YELLOW}No TEST_SENDER env var set and stdin is not a terminal.${NC}"
             echo -e "${YELLOW}Skipping test email. Set TEST_SENDER env var to specify sender email.${NC}"
-            echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+            echo -e "\nSend a test email to any inbox at ${YELLOW}<tool_name>@${BASE_DOMAIN}${NC} to verify."
             SETUP_SUCCESS=true
         fi
     else
         echo -e "${GREEN}Using TEST_SENDER from environment: ${TEST_SENDER}${NC}"
     fi
     
-    # Test the reverser tool
-    if [ -n "$TEST_SENDER" ]; then
-        if test_tool "reverser" "Hello" "olleH"; then
+    # Test a tool if TEST_TOOL_NAME is set, otherwise skip
+    if [ -n "$TEST_SENDER" ] && [ -n "$TEST_TOOL_NAME" ]; then
+        if test_tool "$TEST_TOOL_NAME" "${TEST_INPUT_TEXT:-Hello}" "${TEST_EXPECTED_OUTPUT:-olleH}"; then
             SETUP_SUCCESS=true
         else
             SETUP_SUCCESS=false
         fi
     else
+        if [ -z "$TEST_TOOL_NAME" ]; then
+            echo -e "${YELLOW}TEST_TOOL_NAME not set, skipping tool test.${NC}"
+            echo -e "${YELLOW}Set TEST_TOOL_NAME, TEST_INPUT_TEXT, and TEST_EXPECTED_OUTPUT to test a tool.${NC}"
+        fi
         SETUP_SUCCESS=true
     fi
 fi
