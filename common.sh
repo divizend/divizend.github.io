@@ -163,8 +163,9 @@ get_config_value() {
     local was_prompted=false
     local script_dir=$(get_script_dir)
     
-    # If variable already has a value, use it immediately
+    # If variable already has a value from environment, use it immediately
     if [[ -n "$var_value" ]]; then
+        echo -e "${GREEN}Using ${var_name} from environment: ${var_value}${NC}"
         eval "$var_name=\"$var_value\""
         return 0
     fi
@@ -175,6 +176,7 @@ get_config_value() {
     
     # If variable now has a value from secrets, use it immediately
     if [[ -n "$var_value" ]]; then
+        echo -e "${GREEN}Using ${var_name} from encrypted secrets${NC}"
         eval "$var_name=\"$var_value\""
         return 0
     fi
