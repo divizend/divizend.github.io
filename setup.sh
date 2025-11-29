@@ -242,31 +242,54 @@ fi
 # 6.5. Install S2 CLI
 echo -e "${BLUE}Installing S2 CLI...${NC}"
 if ! command -v s2 &> /dev/null; then
-    # Install Rust/Cargo if not present (required for s2 CLI)
-    if ! command -v cargo &> /dev/null; then
-        echo -e "${BLUE}Installing Rust/Cargo for S2 CLI...${NC}"
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        source "$HOME/.cargo/env" || export PATH="$HOME/.cargo/bin:$PATH"
+    # Try downloading binary release first (faster and doesn't require compilation)
+    echo -e "${BLUE}Downloading S2 CLI binary...${NC}"
+    ARCH=$(uname -m)
+    [ "$ARCH" = "x86_64" ] && ARCH="amd64" || ARCH="arm64"
+    
+    # Try to get latest release tag
+    S2_VERSION=$(curl -s https://api.github.com/repos/s2-streamstore/s2/releases/latest 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+    
+    if [[ -n "$S2_VERSION" ]]; then
+        S2_URL="https://github.com/s2-streamstore/s2/releases/download/${S2_VERSION}/s2-linux-${ARCH}"
+    else
+        # Fallback to direct binary URL pattern
+        S2_URL="https://github.com/s2-streamstore/s2/releases/latest/download/s2-linux-${ARCH}"
     fi
     
-    # Install S2 CLI via cargo
-    echo -e "${BLUE}Installing S2 CLI via cargo...${NC}"
-    cargo install s2 --quiet 2>/dev/null || {
-        # Fallback: try downloading binary release
-        echo -e "${YELLOW}Fallback: downloading S2 CLI binary...${NC}"
-        S2_VERSION=$(curl -s https://api.github.com/repos/s2-streamstore/s2/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "latest")
-        ARCH=$(uname -m)
-        [ "$ARCH" = "x86_64" ] && ARCH="amd64" || ARCH="arm64"
-        curl -Lf "https://github.com/s2-streamstore/s2/releases/${S2_VERSION}/download/s2-linux-${ARCH}" -o /usr/local/bin/s2 2>/dev/null && \
-        chmod +x /usr/local/bin/s2 && \
-        echo -e "${GREEN}S2 CLI installed via binary.${NC}" || \
-        echo -e "${YELLOW}Warning: S2 CLI installation failed. You may need to install it manually.${NC}"
-    }
+    if curl -Lf "$S2_URL" -o /usr/local/bin/s2 2>/dev/null && chmod +x /usr/local/bin/s2; then
+        echo -e "${GREEN}S2 CLI installed via binary.${NC}"
+    else
+        # Fallback: try installing via cargo (requires build tools)
+        echo -e "${YELLOW}Binary download failed, trying cargo install...${NC}"
+        if ! command -v cargo &> /dev/null; then
+            echo -e "${BLUE}Installing Rust/Cargo for S2 CLI...${NC}"
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            export PATH="$HOME/.cargo/bin:$PATH"
+        fi
+        
+        # Install build-essential if not present (needed for cargo)
+        if ! command -v cc &> /dev/null; then
+            echo -e "${BLUE}Installing build-essential for cargo...${NC}"
+            apt-get update -qq && apt-get install -y build-essential >/dev/null 2>&1
+        fi
+        
+        if cargo install s2 --quiet 2>/dev/null; then
+            echo -e "${GREEN}S2 CLI installed via cargo.${NC}"
+        else
+            echo -e "${RED}Error: S2 CLI installation failed.${NC}"
+            echo -e "${YELLOW}You may need to install it manually from: https://s2.dev/docs/quickstart${NC}"
+            exit 1
+        fi
+    fi
     
     if command -v s2 &> /dev/null; then
         echo -e "${GREEN}S2 CLI installed successfully.${NC}"
         # Configure S2 CLI with access token
         s2 config set --access-token "${S2_ACCESS_TOKEN}" 2>/dev/null || true
+    else
+        echo -e "${RED}Error: S2 CLI not found after installation${NC}"
+        exit 1
     fi
 else
     echo -e "${GREEN}S2 CLI is already installed.${NC}"
