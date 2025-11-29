@@ -477,25 +477,20 @@ pipeline:
         # Ensure all required fields are present for Resend API
         # Resend expects: from (string), to (array of strings), subject (string), html (string)
         
-        # Check if 'to' exists and is an array, otherwise create it
+        # Handle 'to' field - ensure it's an array
         let to_array = if this.to.type() == "array" {
           this.to
         } else if this.to.type() == "string" {
           [this.to]
-        } else if this.to.exists() {
-          [this.to.string()]
         } else {
           []
         }
         
         # Build the payload ensuring all fields are present
-        # If 'to' is empty, use a fallback (should not happen in normal flow)
-        root = {
-          "from": this.from | "",
-          "to": if $to_array.length() > 0 { $to_array } else { ["error@example.com"] },
-          "subject": this.subject | "",
-          "html": this.html | ""
-        }
+        root.from = this.from | ""
+        root.to = if $to_array.length() > 0 { $to_array } else { [""] }
+        root.subject = this.subject | ""
+        root.html = this.html | ""
 
 output:
   http_client:
