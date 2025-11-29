@@ -193,139 +193,85 @@ async function editSecrets(): Promise<void> {
     const tempFile = join(tmpdir(), `secrets-edit-${Date.now()}.txt`);
     writeFileSync(tempFile, envFormat, "utf-8");
 
-    // Open in editor
-    // Check multiple environment variables and common editors
-    let editor = process.env.EDITOR || process.env.VISUAL;
+     // Open in editor
+     // Use EDITOR or VISUAL environment variables, or default to nano
+     console.log(`${BLUE}Environment check:${NC}`);
+     console.log(`  EDITOR: ${process.env.EDITOR || "(not set)"}`);
+     console.log(`  VISUAL: ${process.env.VISUAL || "(not set)"}`);
+     
+     let editor = process.env.EDITOR || process.env.VISUAL;
+     
+     // If no editor is set, use nano explicitly
+     if (!editor) {
+       // Try to find nano in common locations
+       const nanoPaths = [
+         "/usr/bin/nano",
+         "/bin/nano",
+         "/opt/homebrew/bin/nano",
+       ];
+       for (const path of nanoPaths) {
+         if (existsSync(path)) {
+           editor = path;
+           console.log(`${BLUE}  Using default editor: ${editor}${NC}`);
+           break;
+         }
+       }
+       
+       if (!editor) {
+         throw new Error(
+           "No editor found. Please install nano or set $EDITOR environment variable."
+         );
+       }
+     } else {
+       console.log(`${BLUE}  Using editor from environment: ${editor}${NC}`);
+     }
 
-    // If no editor is set, find nano explicitly
-    if (!editor) {
-      // Try common paths first (more reliable than which)
-      const commonPaths = [
-        "/usr/bin/nano",
-        "/bin/nano",
-        "/opt/homebrew/bin/nano",
-      ];
-      for (const path of commonPaths) {
-        if (existsSync(path)) {
-          editor = path;
-          break;
-        }
-      }
+     // Split editor command and arguments
+     const editorParts = editor.split(/\s+/);
+     let editorCmd = editorParts[0];
 
-      // If not found in common paths, try which as fallback
-      if (!editor) {
-        try {
-          const nanoPath = execSync("which nano", { encoding: "utf-8" }).trim();
-          // Verify it's actually nano, not a symlink to vi
-          if (nanoPath && existsSync(nanoPath) && nanoPath.includes("nano")) {
-            editor = nanoPath;
-          }
-        } catch {
-          // which failed, editor stays null
-        }
-      }
-    }
+     // Resolve relative paths or command names to absolute paths
+     if (!editorCmd.startsWith("/")) {
+       try {
+         const resolved = execSync(`which ${editorCmd}`, {
+           encoding: "utf-8",
+         }).trim();
+         if (resolved && existsSync(resolved)) {
+           editorCmd = resolved;
+           console.log(`${BLUE}  Resolved to: ${editorCmd}${NC}`);
+         }
+       } catch {
+         // which failed, try to use as-is
+       }
+     }
 
-    if (!editor) {
-      throw new Error(
-        "No editor found. Please install nano or set $EDITOR environment variable."
-      );
-    }
+     if (!existsSync(editorCmd)) {
+       throw new Error(`Editor "${editorCmd}" not found.`);
+     }
+     
+     // CRITICAL: Never allow vi to be used
+     if (editorCmd.includes("/vi") && !editorCmd.includes("nano") && !editorCmd.includes("pico")) {
+       console.log(`${YELLOW}⚠ Warning: Editor "${editorCmd}" is vi, forcing nano instead${NC}`);
+       const nanoPaths = [
+         "/usr/bin/nano",
+         "/bin/nano",
+         "/opt/homebrew/bin/nano",
+       ];
+       let foundNano = false;
+       for (const path of nanoPaths) {
+         if (existsSync(path)) {
+           editorCmd = path;
+           foundNano = true;
+           console.log(`${GREEN}✓ Using ${editorCmd} instead${NC}`);
+           break;
+         }
+       }
+       if (!foundNano) {
+         throw new Error("Could not find nano editor. Please install nano or set $EDITOR to a non-vi editor.");
+       }
+     }
 
-    // Verify editor exists before trying to use it
-    const editorParts = editor.split(/\s+/);
-    let editorCmd = editorParts[0];
-
-    // If editorCmd is already an absolute path, use it directly
-    // Only resolve if it's a relative path or command name
-    if (!editorCmd.startsWith("/")) {
-      // For nano specifically, use known paths instead of which
-      if (editorCmd === "nano") {
-        const nanoPaths = [
-          "/usr/bin/nano",
-          "/bin/nano",
-          "/opt/homebrew/bin/nano",
-        ];
-        for (const path of nanoPaths) {
-          if (existsSync(path)) {
-            editorCmd = path;
-            break;
-          }
-        }
-      } else {
-        // For other editors, try which
-        try {
-          const resolved = execSync(`which ${editorCmd}`, {
-            encoding: "utf-8",
-          }).trim();
-          if (resolved && existsSync(resolved)) {
-            editorCmd = resolved;
-          }
-        } catch {
-          // which failed
-        }
-      }
-    }
-
-    if (!existsSync(editorCmd)) {
-      throw new Error(`Editor "${editorCmd}" not found.`);
-    }
-
-    // CRITICAL SAFETY CHECK: Never allow vi to be used
-    // Check BEFORE any output to catch it early
-    const isVi =
-      editorCmd === "/usr/bin/vi" ||
-      editorCmd === "/bin/vi" ||
-      editorCmd.endsWith("/vi") ||
-      (editorCmd.includes("/vi") &&
-        !editorCmd.includes("nano") &&
-        !editorCmd.includes("pico"));
-
-    if (isVi) {
-      console.log(
-        `${YELLOW}⚠ Warning: Detected vi (${editorCmd}), forcing nano instead${NC}`
-      );
-      const nanoPaths = [
-        "/usr/bin/nano",
-        "/bin/nano",
-        "/opt/homebrew/bin/nano",
-      ];
-      let foundNano = false;
-      for (const path of nanoPaths) {
-        if (existsSync(path)) {
-          editorCmd = path;
-          foundNano = true;
-          console.log(`${GREEN}✓ Using ${editorCmd} instead${NC}`);
-          break;
-        }
-      }
-      if (!foundNano) {
-        throw new Error(
-          "Could not find nano editor. Please install nano or set $EDITOR to a non-vi editor."
-        );
-      }
-    }
-
-    // Final verification before proceeding - throw error if still vi
-    if (
-      editorCmd === "/usr/bin/vi" ||
-      editorCmd === "/bin/vi" ||
-      (editorCmd.endsWith("/vi") &&
-        !editorCmd.includes("nano") &&
-        !editorCmd.includes("pico"))
-    ) {
-      throw new Error(
-        `Editor "${editorCmd}" is vi, which is not allowed. This should not happen - please report this bug.`
-      );
-    }
-
-    console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
-    console.log(
-      `${YELLOW}Debug: Using editor: ${editorCmd}, args: ${JSON.stringify([
-        ...editorParts.slice(1),
-        tempFile,
-      ])}${NC}`
-    );
+     console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
 
     await new Promise<void>((resolve, reject) => {
       // Use execFile for better control and to avoid shell interpretation
