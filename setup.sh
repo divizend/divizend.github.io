@@ -237,14 +237,35 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# In streams mode, resources are defined inline in stream files or in a minimal config
-# Create an empty config.yaml (Bento will use it for HTTP settings if needed)
+# In streams mode, resources are defined in config.yaml and referenced in stream files
 cat <<EOF > /etc/bento/config.yaml
-{}
-EOF
+http:
+  enabled: true
+  address: 0.0.0.0:4195
 
-# Stream 1: Ingest - Webhook -> S2 Inbox
-cat <<EOF > /etc/bento/streams/ingest_email.yaml
+input_resources:
+  - label: s2_inbox_reader
+    aws_s3:
+      bucket: ${BASE_DOMAIN}
+      prefix: inbox/
+      credentials:
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
+      endpoint: "https://s2.dev/v1/s3"
+      region: "us-east-1"
+      delete_objects: true
+
+  - label: s2_outbox_reader
+    aws_s3:
+      bucket: ${BASE_DOMAIN}
+      prefix: outbox/
+      credentials:
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
+      endpoint: "https://s2.dev/v1/s3"
+      region: "us-east-1"
+      delete_objects: true
+
 output_resources:
   - label: s2_inbox_writer
     aws_s3:
@@ -256,6 +277,19 @@ output_resources:
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
 
+  - label: s2_outbox_writer
+    aws_s3:
+      bucket: ${BASE_DOMAIN}
+      path: 'outbox/\${!uuid_v4()}.json'
+      credentials:
+        id: "${S2_ACCESS_TOKEN}"
+        secret: "${S2_ACCESS_TOKEN}"
+      endpoint: "https://s2.dev/v1/s3"
+      region: "us-east-1"
+EOF
+
+# Stream 1: Ingest - Webhook -> S2 Inbox
+cat <<EOF > /etc/bento/streams/ingest_email.yaml
 input:
   http_server:
     path: /webhooks/resend
@@ -317,29 +351,6 @@ EOF
 # Business logic is defined in ${TOOLS_ROOT}/index.ts
 # The inbox name is extracted from the email's "to" field, and the corresponding tool function is called
 cat <<EOF > /etc/bento/streams/transform_email.yaml
-input_resources:
-  - label: s2_inbox_reader
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      prefix: inbox/
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-      delete_objects: true
-
-output_resources:
-  - label: s2_outbox_writer
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      path: 'outbox/\${!uuid_v4()}.json'
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-
 input:
   resource: s2_inbox_reader
 
@@ -379,18 +390,6 @@ EOF
 
 # Stream 3: Send - S2 Outbox -> Resend API
 cat <<EOF > /etc/bento/streams/send_email.yaml
-input_resources:
-  - label: s2_outbox_reader
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      prefix: outbox/
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-      delete_objects: true
-
 input:
   resource: s2_outbox_reader
 
@@ -416,7 +415,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/bento streams /etc/bento/streams
+ExecStart=/usr/bin/bento -c /etc/bento/config.yaml streams /etc/bento/streams
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
@@ -590,6 +589,9 @@ fi
 # Also stop the service if it's running to ensure clean start
 systemctl stop bento 2>/dev/null || true
 sleep 2
+# Remove any old stream files that shouldn't exist
+rm -f /etc/bento/streams/process_reverser.yaml
+
 # Verify Bento stream files exist
 for stream_file in ingest_email.yaml transform_email.yaml send_email.yaml; do
     if [ ! -f /etc/bento/streams/$stream_file ]; then
