@@ -727,20 +727,32 @@ else
             # Check 1: Bento service health (do this first as it's most reliable)
             BENTO_ACTIVE=false
             BENTO_PORT_OPEN=false
-            # Check if Bento is active using multiple methods
+            
+            # Check if Bento is active - try multiple methods
             if systemctl is-active --quiet bento 2>/dev/null; then
                 BENTO_ACTIVE=true
-            elif systemctl status bento --no-pager 2>/dev/null | grep -qi "active (running)\|active: active (running)"; then
-                BENTO_ACTIVE=true
+            else
+                # Try alternative check
+                BENTO_STATUS=$(systemctl status bento --no-pager 2>/dev/null | head -n 3)
+                if echo "$BENTO_STATUS" | grep -qiE "active.*running|Active: active \(running\)"; then
+                    BENTO_ACTIVE=true
+                fi
             fi
             
-            # Check if port is open
+            # Check if port is open - try multiple methods
             if command -v ss > /dev/null 2>&1; then
                 if ss -tuln 2>/dev/null | grep -q ':4195 '; then
                     BENTO_PORT_OPEN=true
                 fi
-            elif command -v netstat > /dev/null 2>&1; then
+            fi
+            if [ "$BENTO_PORT_OPEN" = false ] && command -v netstat > /dev/null 2>&1; then
                 if netstat -tuln 2>/dev/null | grep -q ':4195 '; then
+                    BENTO_PORT_OPEN=true
+                fi
+            fi
+            # Also check if we can connect to the port
+            if [ "$BENTO_PORT_OPEN" = false ]; then
+                if timeout 1 bash -c "echo > /dev/tcp/localhost/4195" 2>/dev/null; then
                     BENTO_PORT_OPEN=true
                 fi
             fi
@@ -750,8 +762,14 @@ else
             elif [ "$BENTO_ACTIVE" = true ]; then
                 VERIFICATION_MESSAGES+=("⚠ Bento service is running but port 4195 not detected")
             else
-                VERIFICATION_MESSAGES+=("✗ Bento service is not running")
-                VERIFICATION_PASSED=false
+                # Last resort: check if process exists
+                if pgrep -f "bento.*streams" > /dev/null 2>&1 || pgrep -f "/usr/bin/bento" > /dev/null 2>&1; then
+                    VERIFICATION_MESSAGES+=("✓ Bento process is running")
+                    BENTO_ACTIVE=true
+                else
+                    VERIFICATION_MESSAGES+=("✗ Bento service is not running")
+                    VERIFICATION_PASSED=false
+                fi
             fi
             
             # Check 2: Webhook was received (check for any HTTP activity or webhook path)
