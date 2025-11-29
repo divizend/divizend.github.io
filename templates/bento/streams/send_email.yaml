@@ -5,16 +5,6 @@ input:
     auth_token: "${S2_ACCESS_TOKEN}"
     cache: s2_outbox_cache
 
-pipeline:
-  processors:
-    # S2 input may return data as string or parsed JSON object
-    # We need to ensure it's a proper JSON object for http_client
-    - bloblang: |
-        # If the message is already an object, use it directly
-        # If it's a string, parse it as JSON
-        # The result should be a JSON object with from, to, subject, html fields
-        root = if this.type() == "string" { this.parse_json() } else { this }
-
 output:
   http_client:
     url: https://api.resend.com/emails
@@ -24,3 +14,5 @@ output:
       Content-Type: "application/json"
     retries: 3
     # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
+    # Bento's http_client should automatically serialize the root message as JSON
+    # when Content-Type is application/json
