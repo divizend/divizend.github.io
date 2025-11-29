@@ -193,38 +193,19 @@ async function editSecrets(): Promise<void> {
     const tempFile = join(tmpdir(), `secrets-edit-${Date.now()}.txt`);
     writeFileSync(tempFile, envFormat, "utf-8");
 
-    // Open in editor
-    // Use EDITOR or VISUAL environment variables, or default to nano
-    console.log(`${BLUE}Environment check:${NC}`);
-    console.log(`  EDITOR: ${process.env.EDITOR || "(not set)"}`);
-    console.log(`  VISUAL: ${process.env.VISUAL || "(not set)"}`);
-
-    let editor = process.env.EDITOR || process.env.VISUAL;
-
-    // If no editor is set, use nano explicitly
-    if (!editor) {
-      // Try to find nano in common locations
-      const nanoPaths = [
-        "/usr/bin/nano",
-        "/bin/nano",
-        "/opt/homebrew/bin/nano",
-      ];
-      for (const path of nanoPaths) {
-        if (existsSync(path)) {
-          editor = path;
-          console.log(`${BLUE}  Using default editor: ${editor}${NC}`);
-          break;
-        }
-      }
-
-      if (!editor) {
-        throw new Error(
-          "No editor found. Please install nano or set $EDITOR environment variable."
-        );
-      }
-    } else {
-      console.log(`${BLUE}  Using editor from environment: ${editor}${NC}`);
-    }
+     // Open in editor
+     // Use EDITOR or VISUAL environment variables, or default to nano
+     console.log(`${BLUE}Environment check:${NC}`);
+     console.log(`  EDITOR: ${process.env.EDITOR || "(not set)"}`);
+     console.log(`  VISUAL: ${process.env.VISUAL || "(not set)"}`);
+     
+     let editor = process.env.EDITOR || process.env.VISUAL || "nano";
+     
+     if (editor === "nano" && !process.env.EDITOR && !process.env.VISUAL) {
+       console.log(`${BLUE}  Using default editor: nano${NC}`);
+     } else {
+       console.log(`${BLUE}  Using editor from environment: ${editor}${NC}`);
+     }
 
     // Split editor command and arguments
     const editorParts = editor.split(/\s+/);
@@ -249,35 +230,30 @@ async function editSecrets(): Promise<void> {
       throw new Error(`Editor "${editorCmd}" not found.`);
     }
 
-    // CRITICAL: Never allow vi to be used
-    if (
-      editorCmd.includes("/vi") &&
-      !editorCmd.includes("nano") &&
-      !editorCmd.includes("pico")
-    ) {
-      console.log(
-        `${YELLOW}⚠ Warning: Editor "${editorCmd}" is vi, forcing nano instead${NC}`
-      );
-      const nanoPaths = [
-        "/usr/bin/nano",
-        "/bin/nano",
-        "/opt/homebrew/bin/nano",
-      ];
-      let foundNano = false;
-      for (const path of nanoPaths) {
-        if (existsSync(path)) {
-          editorCmd = path;
-          foundNano = true;
-          console.log(`${GREEN}✓ Using ${editorCmd} instead${NC}`);
-          break;
-        }
-      }
-      if (!foundNano) {
-        throw new Error(
-          "Could not find nano editor. Please install nano or set $EDITOR to a non-vi editor."
-        );
-      }
-    }
+     // CRITICAL: Never allow vi to be used
+     if (
+       editorCmd.includes("/vi") &&
+       !editorCmd.includes("nano") &&
+       !editorCmd.includes("pico")
+     ) {
+       console.log(
+         `${YELLOW}⚠ Warning: Editor "${editorCmd}" is vi, forcing nano instead${NC}`
+       );
+       // Try to find nano using which
+       try {
+         const nanoPath = execSync("which nano", { encoding: "utf-8" }).trim();
+         if (nanoPath && existsSync(nanoPath)) {
+           editorCmd = nanoPath;
+           console.log(`${GREEN}✓ Using ${editorCmd} instead${NC}`);
+         } else {
+           throw new Error("nano not found");
+         }
+       } catch {
+         throw new Error(
+           "Could not find nano editor. Please install nano or set $EDITOR to a non-vi editor."
+         );
+       }
+     }
 
     console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
 
@@ -292,7 +268,9 @@ async function editSecrets(): Promise<void> {
       });
 
       proc.on("exit", (code, signal) => {
-        console.log(`${BLUE}Editor process exited (code: ${code}, signal: ${signal})${NC}`);
+        console.log(
+          `${BLUE}Editor process exited (code: ${code}, signal: ${signal})${NC}`
+        );
         if (code === 0 || code === null) {
           resolve();
         } else if (signal) {
