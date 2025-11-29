@@ -253,7 +253,7 @@ EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
 cat <<EOF > /etc/bento/streams/ingest_email.yaml
-input_resources:
+output_resources:
   - label: s2_inbox_writer
     aws_s3:
       bucket: ${BASE_DOMAIN}
