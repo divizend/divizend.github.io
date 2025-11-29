@@ -272,6 +272,10 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
+# Convert domain to valid S2 basin name (replace dots with hyphens, lowercase)
+# S2 basin names must be lowercase letters, numbers, and hyphens only
+S2_BASIN=$(echo "${BASE_DOMAIN}" | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+
 # In streams mode, config.yaml is minimal
 # Cache resources are defined in a separate file and loaded with -r flag
 cat <<EOF > /etc/bento/config.yaml
@@ -307,7 +311,7 @@ pipeline:
 
 output:
   s2:
-    basin: ${BASE_DOMAIN}
+    basin: ${S2_BASIN}
     stream: 'inbox/\${!this.data.to[0].split("@")[0]}'
     auth_token: "${S2_ACCESS_TOKEN}"
 EOF
@@ -318,7 +322,7 @@ EOF
 cat <<EOF > /etc/bento/streams/transform_email.yaml
 input:
   s2:
-    basin: ${BASE_DOMAIN}
+    basin: ${S2_BASIN}
     streams: inbox/
     auth_token: "${S2_ACCESS_TOKEN}"
     cache: s2_inbox_cache
@@ -355,7 +359,7 @@ pipeline:
 
 output:
   s2:
-    basin: ${BASE_DOMAIN}
+    basin: ${S2_BASIN}
     stream: outbox
     auth_token: "${S2_ACCESS_TOKEN}"
 EOF
@@ -364,7 +368,7 @@ EOF
 cat <<EOF > /etc/bento/streams/send_email.yaml
 input:
   s2:
-    basin: ${BASE_DOMAIN}
+    basin: ${S2_BASIN}
     streams: outbox
     auth_token: "${S2_ACCESS_TOKEN}"
     cache: s2_outbox_cache
@@ -799,7 +803,8 @@ test_tool() {
     
     # S2 CLI syntax: echo <data> | s2 append s2://<basin>/<stream>
     # Access token is configured via s2 config set, not as a flag
-    if ! echo "$RESEND_PAYLOAD" | "$S2_CMD" append "s2://${BASE_DOMAIN}/outbox" >/dev/null 2>&1; then
+    # S2_BASIN is already defined earlier in the script
+    if ! echo "$RESEND_PAYLOAD" | "$S2_CMD" append "s2://${S2_BASIN}/outbox" >/dev/null 2>&1; then
         echo -e "${RED}✗ Failed to add test email to S2 outbox stream${NC}"
         echo -e "${YELLOW}  Ensure S2 CLI is installed and configured: s2 config set --access-token <token>${NC}"
         echo -e "${YELLOW}  Testing S2 CLI: $S2_CMD append s2://${BASE_DOMAIN}/outbox < /dev/null${NC}"
