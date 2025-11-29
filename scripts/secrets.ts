@@ -271,20 +271,32 @@ async function editSecrets(): Promise<void> {
        throw new Error(`Editor "${editorCmd}" not found.`);
      }
      
-     // Final safety check: if somehow we got vi, force nano
-     if (editorCmd.includes("vi") && !editorCmd.includes("nano")) {
-       console.log(`${YELLOW}Warning: Detected vi, forcing nano instead${NC}`);
+     // CRITICAL SAFETY CHECK: Never allow vi to be used
+     // Check if editorCmd contains vi (but not nano/pico in the path)
+     if (editorCmd.includes("/vi") && !editorCmd.includes("nano") && !editorCmd.includes("pico")) {
+       console.log(`${YELLOW}⚠ Warning: Detected vi (${editorCmd}), forcing nano instead${NC}`);
        const nanoPaths = [
          "/usr/bin/nano",
          "/bin/nano",
          "/opt/homebrew/bin/nano",
        ];
+       let foundNano = false;
        for (const path of nanoPaths) {
          if (existsSync(path)) {
            editorCmd = path;
+           foundNano = true;
+           console.log(`${GREEN}✓ Using ${editorCmd} instead${NC}`);
            break;
          }
        }
+       if (!foundNano) {
+         throw new Error("Could not find nano editor. Please install nano or set $EDITOR to a non-vi editor.");
+       }
+     }
+     
+     // Additional check: verify the final editorCmd is not vi
+     if (editorCmd === "/usr/bin/vi" || editorCmd === "/bin/vi" || editorCmd.endsWith("/vi")) {
+       throw new Error(`Editor "${editorCmd}" is vi, which is not allowed. Please set $EDITOR to nano or another editor.`);
      }
 
     console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
