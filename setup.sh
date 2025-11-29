@@ -39,7 +39,7 @@ read -p "Enter Resend API Key (starts with re_): " RESEND_KEY < /dev/tty
 if [[ -z "$RESEND_KEY" ]]; then echo -e "${RED}Resend API Key is required.${NC}"; exit 1; fi
 
 # Webhook Setup Step
-WEBHOOK_URL="https://${STREAM_DOMAIN}/webhook"
+WEBHOOK_URL="https://${STREAM_DOMAIN}/webhooks/resend"
 
 echo -e "\n${YELLOW}--- Action Required ---${NC}"
 echo -e "1. Go to your Resend Dashboard > Webhooks."
@@ -153,7 +153,7 @@ stream_conf:
   ingest_email:
     input:
       http_server:
-        path: /webhook
+        path: /webhooks/resend
         allowed_verbs: [POST]
         timeout: 5s
     
@@ -242,6 +242,6 @@ echo -e "\n${GREEN}==============================================${NC}"
 echo -e "${GREEN}       Setup Complete Successfully!           ${NC}"
 echo -e "${GREEN}==============================================${NC}"
 echo -e "1. HTTPS is active at: https://${STREAM_DOMAIN}"
-echo -e "2. Webhook endpoint:   https://${STREAM_DOMAIN}/webhook"
+echo -e "2. Webhook endpoint:   https://${STREAM_DOMAIN}/webhooks/resend"
 echo -e "3. Logic:              Email -> Webhook -> S2 -> Reverse -> Resend"
 echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
