@@ -75,7 +75,7 @@ load_secrets_from_sops() {
                 # Export as environment variable if not already set
                 if [[ -n "$key" ]] && [[ -n "$value" ]]; then
                     case "$key" in
-                        BENTO_API_URL|S2_BASIN|BASE_DOMAIN|S2_ACCESS_TOKEN|RESEND_API_KEY|SERVER_IP|TOOLS_ROOT_GITHUB|TEST_SENDER|RESEND_WEBHOOK_SECRET)
+                        BENTO_API_URL|S2_BASIN|BASE_DOMAIN|S2_ACCESS_TOKEN|RESEND_API_KEY|SERVER_IP|TOOLS_ROOT_GITHUB|TEST_SENDER|RESEND_WEBHOOK_SECRET|GITHUB_PAT)
                             # Only set if not already in environment (env vars take precedence)
                             if [[ -z "${!key:-}" ]]; then
                                 export "$key=$value"
