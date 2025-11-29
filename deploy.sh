@@ -87,8 +87,10 @@ get_config_value SERVER_IP "Enter Server IP address" "SERVER_IP is required"
 
 # Get or generate server's public key and add it to .sops.yaml before re-encrypting
 echo "[DEPLOY] Getting server's age public key..."
+# Add server to known_hosts to avoid interactive prompt
+ssh-keyscan -H ${SERVER_IP} >> ~/.ssh/known_hosts 2>/dev/null || true
 SERVER_AGE_KEY_FILE="/root/.age-key-server"
-SERVER_PUBLIC_KEY=$(ssh root@${SERVER_IP} "if [ -f $SERVER_AGE_KEY_FILE ]; then grep '^# public key:' $SERVER_AGE_KEY_FILE | cut -d' ' -f4; else age-keygen -o $SERVER_AGE_KEY_FILE 2>&1 | grep '^Public key:' | cut -d' ' -f3; fi" 2>/dev/null || true)
+SERVER_PUBLIC_KEY=$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@${SERVER_IP} "if [ -f $SERVER_AGE_KEY_FILE ]; then grep '^# public key:' $SERVER_AGE_KEY_FILE | cut -d' ' -f4; else age-keygen -o $SERVER_AGE_KEY_FILE 2>&1 | grep '^Public key:' | cut -d' ' -f3; fi" 2>/dev/null || true)
 
 if [[ -z "$SERVER_PUBLIC_KEY" ]]; then
     echo "[ERROR] Could not get server's public key" >&2
