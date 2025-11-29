@@ -201,11 +201,13 @@ create_secrets_file_if_needed() {
     }
     
     # Create empty YAML file and encrypt it using SOPS
-    if echo "{}" | sops -e /dev/stdin > "$secrets_file" 2>/dev/null; then
+    # Use sops_cmd to ensure proper key setup
+    if echo "{}" | sops_cmd -e /dev/stdin > "$secrets_file" 2>&1; then
         echo -e "${GREEN}✓ Created secrets.encrypted.yaml${NC}"
         return 0
     else
         echo -e "${RED}Error: Failed to create secrets.encrypted.yaml${NC}" >&2
+        echo -e "${YELLOW}Debug: Check that .sops.yaml is properly configured and age key is available${NC}" >&2
         return 1
     fi
 }
