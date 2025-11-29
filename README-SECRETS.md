@@ -49,7 +49,7 @@ The `setup.sh` script automatically:
 3. **Add the GitHub Actions public key to `.sops.yaml`:**
    ```bash
    npm run secrets add-recipient <public-key>
-   # Or directly: bash scripts/secrets.sh add-recipient <public-key>
+   # Or directly: bash secrets.sh add-recipient <public-key>
    ```
 
 4. **Re-encrypt secrets with the new recipient:**
@@ -79,7 +79,7 @@ The `setup.sh` script automatically:
 ```bash
 npm run secrets get <key>
 # Example: npm run secrets get BASE_DOMAIN
-# Or directly: bash scripts/secrets.sh get BASE_DOMAIN
+# Or directly: bash secrets.sh get BASE_DOMAIN
 ```
 
 ### Set a Secret
@@ -87,7 +87,7 @@ npm run secrets get <key>
 ```bash
 npm run secrets set <key> <value>
 # Example: npm run secrets set BASE_DOMAIN "example.com"
-# Or directly: bash scripts/secrets.sh set BASE_DOMAIN "example.com"
+# Or directly: bash secrets.sh set BASE_DOMAIN "example.com"
 ```
 
 ### Delete a Secret
@@ -95,14 +95,14 @@ npm run secrets set <key> <value>
 ```bash
 npm run secrets delete <key>
 # Example: npm run secrets delete OLD_KEY
-# Or directly: bash scripts/secrets.sh delete OLD_KEY
+# Or directly: bash secrets.sh delete OLD_KEY
 ```
 
 ### List All Secrets
 
 ```bash
 npm run secrets list
-# Or directly: bash scripts/secrets.sh list
+# Or directly: bash secrets.sh list
 ```
 
 ### Edit All Secrets
@@ -111,7 +111,7 @@ Edit secrets in your default editor:
 
 ```bash
 npm run secrets edit
-# Or directly: bash scripts/secrets.sh edit
+# Or directly: bash secrets.sh edit
 ```
 
 This will:
@@ -125,7 +125,7 @@ Dump all decrypted secrets to stdout:
 
 ```bash
 npm run secrets dump
-# Or directly: bash scripts/secrets.sh dump
+# Or directly: bash secrets.sh dump
 ```
 
 ### Add a Recipient
