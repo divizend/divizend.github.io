@@ -45,7 +45,7 @@ echo -e "\n${YELLOW}--- Action Required ---${NC}"
 echo -e "1. Go to your Resend Dashboard > Webhooks."
 echo -e "2. Create a new Webhook."
 echo -e "3. Set the Endpoint URL to: ${GREEN}${WEBHOOK_URL}${NC}"
-echo -e "4. Select events: ${GREEN}email.received${NC}"
+echo -e "4. Select ${GREEN}all events${NC}"
 echo -e "5. Create the webhook and copy the ${BLUE}Signing Secret${NC} (starts with whsec_)."
 echo -e "-----------------------"
 
