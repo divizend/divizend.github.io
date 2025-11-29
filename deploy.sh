@@ -34,7 +34,7 @@ SSH_CMD=""
 [[ -n "$TEST_TOOL_NAME" ]] && SSH_CMD="${SSH_CMD}TEST_TOOL_NAME=$(printf %q "$TEST_TOOL_NAME") "
 [[ -n "$TEST_INPUT_TEXT" ]] && SSH_CMD="${SSH_CMD}TEST_INPUT_TEXT=$(printf %q "$TEST_INPUT_TEXT") "
 [[ -n "$TEST_EXPECTED_OUTPUT" ]] && SSH_CMD="${SSH_CMD}TEST_EXPECTED_OUTPUT=$(printf %q "$TEST_EXPECTED_OUTPUT") "
-[[ -n "$TOOLS_ROOT" ]] && SSH_CMD="${SSH_CMD}TOOLS_ROOT=$(printf %q "$TOOLS_ROOT") "
+[[ -n "$TOOLS_ROOT_GITHUB" ]] && SSH_CMD="${SSH_CMD}TOOLS_ROOT_GITHUB=$(printf %q "$TOOLS_ROOT_GITHUB") "
 if ssh -t root@${SERVER_IP} "${SSH_CMD}bash /tmp/setup.sh.local; EXIT_CODE=\$?; rm -rf /tmp/setup.sh.local /tmp/common.sh /tmp/templates; exit \$EXIT_CODE"; then
     echo "[INFO] Deployment complete."
 else

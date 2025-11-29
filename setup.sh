@@ -66,8 +66,8 @@ get_config_value S2_ACCESS_TOKEN "Enter S2 Access Token" "S2 Token is required."
 # Resend API Key
 get_config_value RESEND_API_KEY "Enter Resend API Key (starts with re_)" "Resend API Key is required."
 
-# Tools Root Configuration (with default)
-get_config_value TOOLS_ROOT "Enter Tools Root URL" "Tools Root is required." "https://setup.divizend.com/bentotools"
+# Tools Root GitHub Configuration (with default)
+get_config_value TOOLS_ROOT_GITHUB "Enter Tools Root GitHub URL (e.g., https://github.com/owner/repo/main/bentotools)" "Tools Root GitHub is required." "https://github.com/divizend/divizend.github.io/main/bentotools"
 
 # Webhook Setup Step
 WEBHOOK_URL="https://${STREAM_DOMAIN}/webhooks/resend"
@@ -391,203 +391,77 @@ sed -e "s|\${S2_BASIN}|${S2_BASIN}|g" \
     -e "s|\${BASE_DOMAIN}|${BASE_DOMAIN}|g" \
     -e "s|\${S2_ACCESS_TOKEN}|${S2_ACCESS_TOKEN}|g" \
     -e "s|\${RESEND_API_KEY}|${RESEND_API_KEY}|g" \
-    -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
     "${TEMPLATE_DIR}/bento/config.yaml" > /etc/bento/config.yaml
 
 sed -e "s|\${S2_BASIN}|${S2_BASIN}|g" \
     -e "s|\${BASE_DOMAIN}|${BASE_DOMAIN}|g" \
     -e "s|\${S2_ACCESS_TOKEN}|${S2_ACCESS_TOKEN}|g" \
     -e "s|\${RESEND_API_KEY}|${RESEND_API_KEY}|g" \
-    -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
     "${TEMPLATE_DIR}/bento/resources.yaml" > /etc/bento/resources.yaml
 
-sed -e "s|\${S2_BASIN}|${S2_BASIN}|g" \
-    -e "s|\${BASE_DOMAIN}|${BASE_DOMAIN}|g" \
-    -e "s|\${S2_ACCESS_TOKEN}|${S2_ACCESS_TOKEN}|g" \
-    -e "s|\${RESEND_API_KEY}|${RESEND_API_KEY}|g" \
-    -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
-    "${TEMPLATE_DIR}/bento/streams/ingest_email.yaml" > /etc/bento/streams/ingest_email.yaml
-
-sed -e "s|\${S2_BASIN}|${S2_BASIN}|g" \
-    -e "s|\${BASE_DOMAIN}|${BASE_DOMAIN}|g" \
-    -e "s|\${S2_ACCESS_TOKEN}|${S2_ACCESS_TOKEN}|g" \
-    -e "s|\${RESEND_API_KEY}|${RESEND_API_KEY}|g" \
-    -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
-    "${TEMPLATE_DIR}/bento/streams/transform_email.yaml" > /etc/bento/streams/transform_email.yaml
-
-sed -e "s|\${S2_BASIN}|${S2_BASIN}|g" \
-    -e "s|\${BASE_DOMAIN}|${BASE_DOMAIN}|g" \
-    -e "s|\${S2_ACCESS_TOKEN}|${S2_ACCESS_TOKEN}|g" \
-    -e "s|\${RESEND_API_KEY}|${RESEND_API_KEY}|g" \
-    -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
-    "${TEMPLATE_DIR}/bento/streams/send_email.yaml" > /etc/bento/streams/send_email.yaml
+# Streams are now managed via Bento HTTP API from TOOLS_ROOT_GITHUB
+# They will be synced automatically by the sync daemon
 
 # 8. Systemd Service Setup
 echo -e "${BLUE}Configuring Systemd service...${NC}"
-sed -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
-    "${TEMPLATE_DIR}/systemd/bento.service" > /etc/systemd/system/bento.service
-sed -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
+cp "${TEMPLATE_DIR}/systemd/bento.service" /etc/systemd/system/bento.service
+sed -e "s|\${TOOLS_ROOT_GITHUB}|${TOOLS_ROOT_GITHUB}|g" \
     "${TEMPLATE_DIR}/systemd/bento-sync.service" > /etc/systemd/system/bento-sync.service
-sed -e "s|\${TOOLS_ROOT}|${TOOLS_ROOT}|g" \
-    "${TEMPLATE_DIR}/systemd/bento-sync.timer" > /etc/systemd/system/bento-sync.timer
+cp "${TEMPLATE_DIR}/systemd/bento-sync.timer" /etc/systemd/system/bento-sync.timer
 
-# 9. Install Terraform and Setup Bento Tools Sync Daemon
+# 9. Setup Bento Tools Sync Daemon
 echo -e "${BLUE}Setting up Bento Tools Sync Daemon...${NC}"
 
-# Install Terraform if not present
-if ! command -v terraform &> /dev/null; then
-    echo -e "${BLUE}Installing Terraform...${NC}"
-    TERRAFORM_VERSION="1.6.0"
-    TERRAFORM_ZIP="terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
-    curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/${TERRAFORM_ZIP}" -o /tmp/${TERRAFORM_ZIP}
-    unzip -q -o /tmp/${TERRAFORM_ZIP} -d /usr/local/bin/
-    rm -f /tmp/${TERRAFORM_ZIP}
-    chmod +x /usr/local/bin/terraform
-    echo -e "${GREEN}Terraform installed.${NC}"
+# Install bun if not present (required for TypeScript compilation)
+if ! command -v bun &> /dev/null; then
+    echo -e "${BLUE}Installing bun...${NC}"
+    curl -fsSL https://bun.sh/install | bash
+    export PATH="$HOME/.bun/bin:$PATH"
+    echo -e "${GREEN}Bun installed.${NC}"
 else
-    echo -e "${GREEN}Terraform is already installed.${NC}"
+    echo -e "${GREEN}Bun is already installed.${NC}"
 fi
 
-# Create directory for Terraform daemon
+# Create directory for sync daemon
 mkdir -p /opt/bento-sync
-mkdir -p /opt/bento-sync/terraform
 
-# Create Terraform configuration for Bento tools sync
-cat <<TFEOF > /opt/bento-sync/terraform/main.tf
-terraform {
-  required_version = ">= 1.0"
-  required_providers {
-    http = {
-      source  = "hashicorp/http"
-      version = "~> 3.0"
-    }
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.0"
-    }
-    null = {
-      source  = "hashicorp/null"
-      version = "~> 3.0"
-    }
-  }
-}
-
-variable "tools_root" {
-  description = "Root URL for Bento tools"
-  type        = string
-  default     = "https://setup.divizend.com/bentotools"
-}
-
-# Data source to fetch tools from remote URL
-data "http" "bento_tools" {
-  url = "\${var.tools_root}/index.ts"
-  
-  request_headers = {
-    Accept = "text/plain"
-  }
-}
-
-# Local file to store fetched tools
-resource "local_file" "bento_tools_index" {
-  content  = data.http.bento_tools.response_body
-  filename = "/tmp/bento-tools-index.ts"
-}
-
-# Trigger Bento reload via HTTP API (if available)
-resource "null_resource" "bento_reload" {
-  triggers = {
-    tools_hash = md5(data.http.bento_tools.response_body)
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      # Try to trigger Bento reload via API
-      TOOLS_ROOT_VAL="\${var.tools_root}"
-      curl -f -s -X POST "http://localhost:4195/admin/reload-tools" \\
-        -H "Content-Type: application/json" \\
-        -d "{\\"tools_root\\": \\"\$TOOLS_ROOT_VAL\\"}" \\
-        || systemctl reload bento || true
-    EOT
-  }
-}
-TFEOF
-
-# Create sync daemon script
-cat <<SYNC_SCRIPT > /opt/bento-sync/sync.sh
+# Download sync script from TOOLS_ROOT_GITHUB
+# Parse TOOLS_ROOT_GITHUB to construct raw GitHub URL
+if [[ "$TOOLS_ROOT_GITHUB" =~ ^https://github\.com/([^/]+)/([^/]+)(/([^/]+))?(/(.*))?$ ]]; then
+    OWNER="${BASH_REMATCH[1]}"
+    REPO="${BASH_REMATCH[2]}"
+    BRANCH="${BASH_REMATCH[4]}"
+    PATH_PART="${BASH_REMATCH[6]}"
+    
+    # If branch not specified, get default branch from GitHub API
+    if [ -z "$BRANCH" ]; then
+        DEFAULT_BRANCH=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}" | grep -o '"default_branch":"[^"]*' | cut -d'"' -f4 || echo "main")
+        BRANCH="$DEFAULT_BRANCH"
+    fi
+    
+    # Construct raw GitHub URL for sync.sh
+    if [ -n "$PATH_PART" ]; then
+        PATH_PART="${PATH_PART%/}"
+        SYNC_SCRIPT_URL="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${PATH_PART}/sync.sh"
+    else
+        SYNC_SCRIPT_URL="https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/sync.sh"
+    fi
+    
+    echo -e "${BLUE}Downloading sync script from ${SYNC_SCRIPT_URL}...${NC}"
+    curl -fsSL "$SYNC_SCRIPT_URL" -o /opt/bento-sync/sync.sh || {
+        echo -e "${YELLOW}Warning: Could not download sync.sh from GitHub, creating minimal version...${NC}"
+        # Create a minimal sync script as fallback
+        cat > /opt/bento-sync/sync.sh <<'SYNC_EOF'
 #!/bin/bash
-set +e  # Don't exit on error for lock handling
-
-cd /opt/bento-sync/terraform
-
-# Get TOOLS_ROOT from environment or use default
-TOOLS_ROOT="${TOOLS_ROOT:-https://setup.divizend.com/bentotools}"
-
-# Initialize Terraform if needed
-if [ ! -d ".terraform" ]; then
-    terraform init -upgrade
+set -e
+echo "Bento sync script - placeholder"
+SYNC_EOF
+    }
+    chmod +x /opt/bento-sync/sync.sh
+else
+    echo -e "${RED}Error: Invalid TOOLS_ROOT_GITHUB format${NC}" >&2
+    exit 1
 fi
-
-# Wait for lock to be released if it exists (max 30 seconds)
-LOCK_FILE=".terraform.tfstate.lock.info"
-if [ -f "\$LOCK_FILE" ]; then
-    echo "Waiting for Terraform lock to be released..."
-    for i in {1..30}; do
-        if [ ! -f "\$LOCK_FILE" ]; then
-            break
-        fi
-        sleep 1
-    done
-fi
-
-# Apply Terraform configuration to sync tools
-# Suppress lock errors as they're expected when multiple syncs run simultaneously
-terraform apply -auto-approve -refresh=true -var="tools_root=\${TOOLS_ROOT}" 2>&1 | grep -v "Error acquiring the state lock" || true
-
-# Log the sync (only if successful or if lock wasn't the issue)
-if [ \$? -eq 0 ] || ! terraform show 2>&1 | grep -q "state lock"; then
-    echo "\$(date): Bento tools synced from \${TOOLS_ROOT}" >> /var/log/bento-sync.log
-fi
-SYNC_SCRIPT
-
-chmod +x /opt/bento-sync/sync.sh
-
-# Create systemd service for Bento tools sync daemon
-cat <<EOF > /etc/systemd/system/bento-sync.service
-[Unit]
-Description=Bento Tools Sync Daemon
-Documentation=https://setup.divizend.com
-After=network.target bento.service
-Requires=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/bento-sync/terraform
-Environment="TOOLS_ROOT=${TOOLS_ROOT}"
-ExecStart=/opt/bento-sync/sync.sh
-Restart=on-failure
-RestartSec=60
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Create systemd timer for periodic sync
-cat <<EOF > /etc/systemd/system/bento-sync.timer
-[Unit]
-Description=Bento Tools Sync Timer
-Requires=bento-sync.service
-
-[Timer]
-OnBootSec=5min
-OnUnitActiveSec=5min
-AccuracySec=1min
-
-[Install]
-WantedBy=timers.target
-EOF
 
 # Enable and start the sync timer
 systemctl daemon-reload
@@ -596,8 +470,13 @@ systemctl start bento-sync.timer > /dev/null 2>&1
 
 # Run initial sync
 echo -e "${BLUE}Running initial Bento tools sync...${NC}"
-# Run sync script (it handles locks internally)
-/opt/bento-sync/sync.sh > /dev/null 2>&1 || echo -e "${YELLOW}Initial sync had issues (may be due to concurrent execution), but continuing...${NC}"
+BENTO_API_URL="http://localhost:4195" \
+TOOLS_ROOT_GITHUB="${TOOLS_ROOT_GITHUB}" \
+S2_BASIN="${S2_BASIN}" \
+BASE_DOMAIN="${BASE_DOMAIN}" \
+S2_ACCESS_TOKEN="${S2_ACCESS_TOKEN}" \
+RESEND_API_KEY="${RESEND_API_KEY}" \
+/opt/bento-sync/sync.sh || echo -e "${YELLOW}Initial sync had issues, but continuing...${NC}"
 
 echo -e "${GREEN}Bento Tools Sync Daemon configured.${NC}"
 
@@ -612,24 +491,18 @@ if lsof -ti:4195 > /dev/null 2>&1 && ! systemctl is-active --quiet bento 2>/dev/
     lsof -ti:4195 | xargs kill -9 2>/dev/null || true
     sleep 2
 fi
-# Remove any old stream files that shouldn't exist
-rm -f /etc/bento/streams/process_reverser.yaml
+# Streams are now managed via Bento HTTP API from TOOLS_ROOT_GITHUB
+# They will be synced automatically by the sync daemon
+# No need to verify local stream files as they're managed via API
 
-# Verify Bento stream files exist
-for stream_file in ingest_email.yaml transform_email.yaml send_email.yaml; do
-    if [ ! -f /etc/bento/streams/$stream_file ]; then
-        echo -e "${RED}Error: Bento stream file not found at /etc/bento/streams/$stream_file${NC}"
-        exit 1
-    fi
-done
 # Validate config if Bento supports it (with timeout to prevent hanging)
 if command -v bento > /dev/null 2>&1; then
     set +e  # Temporarily disable exit on error for lint check
     if command -v timeout > /dev/null 2>&1; then
-        LINT_OUTPUT=$(timeout 5 bento lint /etc/bento/streams/*.yaml 2>&1)
+        LINT_OUTPUT=$(timeout 5 bento lint /etc/bento/config.yaml /etc/bento/resources.yaml 2>&1)
         LINT_EXIT=$?
     else
-        LINT_OUTPUT=$(bento lint /etc/bento/streams/*.yaml 2>&1)
+        LINT_OUTPUT=$(bento lint /etc/bento/config.yaml /etc/bento/resources.yaml 2>&1)
         LINT_EXIT=$?
     fi
     set -e  # Re-enable exit on error

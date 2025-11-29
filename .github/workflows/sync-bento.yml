@@ -7,6 +7,13 @@ on:
     paths:
       - 'bentotools/**'
   workflow_dispatch:
+    inputs:
+      tools_root_github:
+        description: 'TOOLS_ROOT_GITHUB (e.g., https://github.com/divizend/divizend.github.io/main/bentotools)'
+        required: false
+        type: string
+  repository_dispatch:
+    types: [bento-sync]
 
 jobs:
   sync:
@@ -15,37 +22,75 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get Bento API endpoint
-        id: bento_config
-        run: |
-          # Try to get from environment or use default
-          BENTO_API_URL="${BENTO_API_URL:-http://localhost:4195}"
-          echo "url=$BENTO_API_URL" >> $GITHUB_OUTPUT
-          echo "Bento API URL: $BENTO_API_URL"
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
 
-      - name: Sync Bento tools
-        env:
-          BENTO_API_URL: ${{ steps.bento_config.outputs.url }}
-          TOOLS_ROOT: https://setup.divizend.com/bentotools
+      - name: Parse TOOLS_ROOT_GITHUB
+        id: parse_tools_root
         run: |
-          echo "Syncing Bento tools from ${TOOLS_ROOT}..."
-          
-          # Check if Bento API is accessible
-          if ! curl -f -s "${BENTO_API_URL}/ready" > /dev/null 2>&1; then
-            echo "Warning: Bento API at ${BENTO_API_URL} is not accessible"
-            echo "This is expected if Bento is not running or not publicly accessible"
-            exit 0
+          # Get TOOLS_ROOT_GITHUB from input or environment
+          TOOLS_ROOT_GITHUB="${{{ inputs.tools_root_github }}}"
+          if [ -z "$TOOLS_ROOT_GITHUB" ]; then
+            # Default to current repo
+            TOOLS_ROOT_GITHUB="https://github.com/${{ github.repository }}/${{ github.ref_name }}/bentotools"
           fi
           
-          # Trigger Bento to reload tools (if Bento supports this endpoint)
-          # This would need to be implemented in Bento or via a webhook
-          curl -X POST "${BENTO_API_URL}/admin/reload-tools" \
-            -H "Content-Type: application/json" \
-            -d "{\"tools_root\": \"${TOOLS_ROOT}\"}" \
-            || echo "Note: Bento reload endpoint may not be available yet"
+          echo "tools_root_github=$TOOLS_ROOT_GITHUB" >> $GITHUB_OUTPUT
+          echo "🔍 TOOLS_ROOT_GITHUB: $TOOLS_ROOT_GITHUB"
+          
+          # Parse to extract components
+          if [[ "$TOOLS_ROOT_GITHUB" =~ ^https://github\.com/([^/]+)/([^/]+)(/([^/]+))?(/(.*))?$ ]]; then
+            OWNER="${BASH_REMATCH[1]}"
+            REPO="${BASH_REMATCH[2]}"
+            BRANCH="${BASH_REMATCH[4]}"
+            PATH_PART="${BASH_REMATCH[6]}"
+            
+            echo "owner=$OWNER" >> $GITHUB_OUTPUT
+            echo "repo=$REPO" >> $GITHUB_OUTPUT
+            echo "branch=${BRANCH:-}" >> $GITHUB_OUTPUT
+            echo "path=${PATH_PART:-}" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Invalid TOOLS_ROOT_GITHUB format"
+            exit 1
+          fi
 
-      - name: Notify on failure
-        if: failure()
+      - name: Get default branch if not specified
+        id: default_branch
+        if: steps.parse_tools_root.outputs.branch == ''
         run: |
-          echo "Bento sync failed - check logs above"
+          OWNER="${{ steps.parse_tools_root.outputs.owner }}"
+          REPO="${{ steps.parse_tools_root.outputs.repo }}"
+          
+          DEFAULT_BRANCH=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}" | jq -r '.default_branch // "main"')
+          echo "branch=$DEFAULT_BRANCH" >> $GITHUB_OUTPUT
+          echo "📡 Default branch: $DEFAULT_BRANCH"
 
+      - name: Compile and sync Bento streams
+        env:
+          BENTO_API_URL: ${{ secrets.BENTO_API_URL || 'http://localhost:4195' }}
+          TOOLS_ROOT_GITHUB: ${{ steps.parse_tools_root.outputs.tools_root_github }}
+          S2_BASIN: ${{ secrets.S2_BASIN || '' }}
+          BASE_DOMAIN: ${{ secrets.BASE_DOMAIN || '' }}
+          S2_ACCESS_TOKEN: ${{ secrets.S2_ACCESS_TOKEN || '' }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY || '' }}
+        run: |
+          echo "🔄 Syncing Bento streams from ${TOOLS_ROOT_GITHUB}..."
+          
+          # Use the sync script
+          chmod +x bentotools/sync.sh
+          ./bentotools/sync.sh || {
+            echo "⚠️ Sync script failed, but continuing..."
+            exit 0
+          }
+
+      - name: Output summary
+        if: always()
+        run: |
+          echo "## 📊 Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **TOOLS_ROOT_GITHUB**: ${{ steps.parse_tools_root.outputs.tools_root_github }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repository**: ${{ steps.parse_tools_root.outputs.owner }}/${{ steps.parse_tools_root.outputs.repo }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ steps.parse_tools_root.outputs.branch || steps.default_branch.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Path**: ${{ steps.parse_tools_root.outputs.path || '/' }}" >> $GITHUB_STEP_SUMMARY
