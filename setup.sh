@@ -745,14 +745,19 @@ else
             EMAIL_SENT_CONFIRMED=false
             if [ -n "$RECENT_LOGS" ]; then
                 # Look for successful HTTP responses from Resend API (2xx status codes)
-                if echo "$RECENT_LOGS" | grep -qiE "api.resend.com.*200|api.resend.com.*201|http_client.*200|http_client.*201|POST.*200|POST.*201" > /dev/null 2>&1; then
+                # Bento may log these in various formats
+                if echo "$RECENT_LOGS" | grep -qiE "(200|201).*resend|resend.*(200|201)|http.*200|http.*201|status.*200|status.*201" > /dev/null 2>&1; then
                     VERIFICATION_MESSAGES+=("✓ Email successfully sent via Resend API (HTTP 200/201 detected)")
                     EMAIL_SENT_CONFIRMED=true
                     PROCESSING_COMPLETE=true
-                # Also check for any Resend API activity
-                elif echo "$RECENT_LOGS" | grep -qiE "api.resend.com|resend.com/emails|http_client.*resend" > /dev/null 2>&1; then
-                    # Check if there are any error messages
-                    if echo "$RECENT_LOGS" | grep -qiE "error|failed|401|403|500|502|503" > /dev/null 2>&1; then
+                # Check for any Resend API activity or HTTP client activity
+                elif echo "$RECENT_LOGS" | grep -qiE "api.resend.com|resend.com/emails|http_client|POST.*emails|outbox.*reader" > /dev/null 2>&1; then
+                    # Check for specific error patterns
+                    if echo "$RECENT_LOGS" | grep -qiE "(401|403|429|500|502|503|504).*resend|resend.*(401|403|429|500|502|503|504)|unauthorized|forbidden|rate.limit" > /dev/null 2>&1; then
+                        ERROR_DETAIL=$(echo "$RECENT_LOGS" | grep -iE "(401|403|429|500|502|503|504).*resend|resend.*(401|403|429|500|502|503|504)|unauthorized|forbidden|rate.limit" | head -n 1)
+                        VERIFICATION_MESSAGES+=("✗ Email sending failed: $ERROR_DETAIL")
+                        VERIFICATION_PASSED=false
+                    elif echo "$RECENT_LOGS" | grep -qiE "error|failed|timeout|connection.*refused" > /dev/null 2>&1; then
                         VERIFICATION_MESSAGES+=("✗ Email sending failed (errors detected in logs)")
                         VERIFICATION_PASSED=false
                     else
