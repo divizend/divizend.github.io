@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# Source common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/common.sh"
+
 if ! git diff --quiet setup.sh; then
     echo "[INFO] Committing and pushing setup.sh..."
     git add setup.sh
@@ -13,13 +17,9 @@ fi
 echo "[DEPLOY] Running setup on server..."
 # Source .env if it exists (silently handle if it doesn't)
 [ -f .env ] && source .env
-if [[ -z "$SERVER_IP" ]]; then
-    read -p "Enter Server IP address: " SERVER_IP < /dev/tty
-    if [[ -z "$SERVER_IP" ]]; then
-        echo "[ERROR] SERVER_IP is required"
-        exit 1
-    fi
-fi
+
+# Get SERVER_IP using common function
+get_config_value SERVER_IP "Enter Server IP address" "SERVER_IP is required"
 scp setup.sh root@${SERVER_IP}:/tmp/setup.sh.local > /dev/null
 # Pass environment variables if they exist in local .env
 SSH_CMD=""
