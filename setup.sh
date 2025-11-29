@@ -310,8 +310,8 @@ cat <<EOF > /etc/bento/streams/ingest_email.yaml
     
 pipeline:
   processors:
-        # In a strict production environment, you would verify the svix-signature here.
-        # Passing raw payload to stream for durability.
+    # In a strict production environment, you would verify the svix-signature here.
+    # Passing raw payload to stream for durability.
     - mapping: root = this
 
 output:
@@ -326,10 +326,10 @@ input:
 pipeline:
   processors:
         - bloblang: |
-            # Extract relevant fields from Resend Payload
-            let original_text = this.data.text | ""
-            let sender = this.data.from
-            let subject = this.data.subject
+        # Extract relevant fields from Resend Payload
+        let original_text = this.data.text | ""
+        let sender = this.data.from
+        let subject = this.data.subject
 
         # Automatically determine receiver (original sender) and sender (reverser@domain)
         let receiver = \$sender
