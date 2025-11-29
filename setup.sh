@@ -234,70 +234,69 @@ output_resources:
 # ------------------------------------------------------------------------------
 # Stream Definitions
 # ------------------------------------------------------------------------------
-streams:
-  # ----------------------------------------------------
-  # 1. Ingest: Webhook -> S2 Inbox
-  # ----------------------------------------------------
-  ingest_email:
-    input:
-      http_server:
-        path: /webhooks/resend
-        allowed_verbs: [POST]
-        timeout: 5s
+# ----------------------------------------------------
+# 1. Ingest: Webhook -> S2 Inbox
+# ----------------------------------------------------
+ingest_email:
+  input:
+    http_server:
+      path: /webhooks/resend
+      allowed_verbs: [POST]
+      timeout: 5s
+  
+  pipeline:
+    processors:
+      # In a strict production environment, you would verify the svix-signature here.
+      # Passing raw payload to stream for durability.
+      - mapping: root = this
+  
+  output:
+    resource: s2_inbox_writer
+
+# ----------------------------------------------------
+# 2. Logic: S2 Inbox -> Reverse Text -> S2 Outbox
+# ----------------------------------------------------
+process_reverser:
+  input:
+    resource: s2_inbox_reader
+  
+  pipeline:
+    processors:
+      - bloblang: |
+          # Extract relevant fields from Resend Payload
+          let original_text = this.data.text | ""
+          let sender = this.data.from
+          let subject = this.data.subject
+
+          # Business Logic: Reverse the text
+          # Splitting by empty string creates array of chars, reverse array, join back
+          let reversed_text = \$original_text.split("").reverse().join("")
+
+          # Construct Resend API Payload
+          root.from = "Reverser <reverser@${BASE_DOMAIN}>"
+          root.to = [\$sender]
+          root.subject = "Re: " + \$subject
+          root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
+
+  output:
+    resource: s2_outbox_writer
+
+# ----------------------------------------------------
+# 3. Egress: S2 Outbox -> Resend API
+# ----------------------------------------------------
+send_email:
+  input:
+    resource: s2_outbox_reader
     
-    pipeline:
-      processors:
-        # In a strict production environment, you would verify the svix-signature here.
-        # Passing raw payload to stream for durability.
-        - mapping: root = this
-    
-    output:
-      resource: s2_inbox_writer
-
-  # ----------------------------------------------------
-  # 2. Logic: S2 Inbox -> Reverse Text -> S2 Outbox
-  # ----------------------------------------------------
-  process_reverser:
-    input:
-      resource: s2_inbox_reader
-    
-    pipeline:
-      processors:
-        - bloblang: |
-            # Extract relevant fields from Resend Payload
-            let original_text = this.data.text | ""
-            let sender = this.data.from
-            let subject = this.data.subject
-
-            # Business Logic: Reverse the text
-            # Splitting by empty string creates array of chars, reverse array, join back
-            let reversed_text = \$original_text.split("").reverse().join("")
-
-            # Construct Resend API Payload
-            root.from = "Reverser <reverser@${BASE_DOMAIN}>"
-            root.to = [\$sender]
-            root.subject = "Re: " + \$subject
-            root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
-
-    output:
-      resource: s2_outbox_writer
-
-  # ----------------------------------------------------
-  # 3. Egress: S2 Outbox -> Resend API
-  # ----------------------------------------------------
-  send_email:
-    input:
-      resource: s2_outbox_reader
-      
-    output:
-      http_client:
-        url: https://api.resend.com/emails
-        verb: POST
-        headers:
-          Authorization: "Bearer ${RESEND_API_KEY}"
-          Content-Type: "application/json"
-        retries: 3
-        # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
+  output:
+    http_client:
+      url: https://api.resend.com/emails
+      verb: POST
+      headers:
+        Authorization: "Bearer ${RESEND_API_KEY}"
+        Content-Type: "application/json"
+      retries: 3
+      # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
 EOF
 
 # 8. Systemd Service Setup
