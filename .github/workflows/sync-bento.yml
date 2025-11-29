@@ -37,17 +37,14 @@ jobs:
       - name: Export secrets as env vars
         run: |
           echo "📋 Exporting secrets as environment variables..."
-          # Convert YAML key: value to export statements
-          while IFS=: read -r key value; do
-            # Skip comments and empty lines
-            [[ "$key" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "$key" ]] && continue
-            # Trim whitespace and remove quotes
-            key=$(echo "$key" | xargs)
-            value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/^"//;s/"$//')
+          # Convert YAML key: value pairs to environment variables
+          # Handle simple key: value format (one per line)
+          grep -E '^[A-Z_]+:' secrets.yaml | while IFS= read -r line; do
+            key=$(echo "$line" | cut -d: -f1 | xargs)
+            value=$(echo "$line" | cut -d: -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/^"//;s/"$//')
             # Export to GITHUB_ENV for subsequent steps
             echo "${key}=${value}" >> $GITHUB_ENV
-          done < secrets.yaml
+          done
           echo "✓ Secrets exported"
 
       - name: Pull on server
