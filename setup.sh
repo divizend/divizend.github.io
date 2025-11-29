@@ -25,32 +25,49 @@ fi
 echo -e "${YELLOW}--- Configuration ---${NC}"
 
 # Domain
-read -p "Enter your Base Domain (e.g., mydomain.com): " BASE_DOMAIN < /dev/tty
-if [[ -z "$BASE_DOMAIN" ]]; then echo -e "${RED}Domain is required.${NC}"; exit 1; fi
+if [[ -z "$BASE_DOMAIN" ]]; then
+    read -p "Enter your Base Domain (e.g., mydomain.com): " BASE_DOMAIN < /dev/tty
+    if [[ -z "$BASE_DOMAIN" ]]; then echo -e "${RED}Domain is required.${NC}"; exit 1; fi
+else
+    echo -e "${GREEN}Using BASE_DOMAIN from environment: ${BASE_DOMAIN}${NC}"
+fi
 STREAM_DOMAIN="streams.${BASE_DOMAIN}"
 echo -e "Service will be deployed at: ${GREEN}https://${STREAM_DOMAIN}${NC}"
 
 # S2 Configuration
-read -p "Enter S2 Access Token: " S2_TOKEN < /dev/tty
-if [[ -z "$S2_TOKEN" ]]; then echo -e "${RED}S2 Token is required.${NC}"; exit 1; fi
+if [[ -z "$S2_ACCESS_TOKEN" ]]; then
+    read -p "Enter S2 Access Token: " S2_TOKEN < /dev/tty
+    if [[ -z "$S2_TOKEN" ]]; then echo -e "${RED}S2 Token is required.${NC}"; exit 1; fi
+else
+    S2_TOKEN="$S2_ACCESS_TOKEN"
+    echo -e "${GREEN}Using S2_ACCESS_TOKEN from environment.${NC}"
+fi
 
 # Resend API Key
-read -p "Enter Resend API Key (starts with re_): " RESEND_KEY < /dev/tty
-if [[ -z "$RESEND_KEY" ]]; then echo -e "${RED}Resend API Key is required.${NC}"; exit 1; fi
+if [[ -z "$RESEND_API_KEY" ]]; then
+    read -p "Enter Resend API Key (starts with re_): " RESEND_KEY < /dev/tty
+    if [[ -z "$RESEND_KEY" ]]; then echo -e "${RED}Resend API Key is required.${NC}"; exit 1; fi
+else
+    RESEND_KEY="$RESEND_API_KEY"
+    echo -e "${GREEN}Using RESEND_API_KEY from environment.${NC}"
+fi
 
 # Webhook Setup Step
 WEBHOOK_URL="https://${STREAM_DOMAIN}/webhooks/resend"
 
-echo -e "\n${YELLOW}--- Action Required ---${NC}"
-echo -e "1. Go to your Resend Dashboard > Webhooks."
-echo -e "2. Create a new Webhook."
-echo -e "3. Set the Endpoint URL to: ${GREEN}${WEBHOOK_URL}${NC}"
-echo -e "4. Select ${GREEN}All Events${NC}"
-echo -e "5. Create the webhook and copy the ${BLUE}Signing Secret${NC} (starts with whsec_)."
-echo -e "-----------------------"
-
-read -p "Paste the Resend Webhook Secret here: " RESEND_WEBHOOK_SECRET < /dev/tty
-if [[ -z "$RESEND_WEBHOOK_SECRET" ]]; then echo -e "${RED}Webhook Secret is required.${NC}"; exit 1; fi
+if [[ -z "$RESEND_WEBHOOK_SECRET" ]]; then
+    echo -e "\n${YELLOW}--- Action Required ---${NC}"
+    echo -e "1. Go to your Resend Dashboard > Webhooks."
+    echo -e "2. Create a new Webhook."
+    echo -e "3. Set the Endpoint URL to: ${GREEN}${WEBHOOK_URL}${NC}"
+    echo -e "4. Select ${GREEN}All Events${NC}"
+    echo -e "5. Create the webhook and copy the ${BLUE}Signing Secret${NC} (starts with whsec_)."
+    echo -e "-----------------------"
+    read -p "Paste the Resend Webhook Secret here: " RESEND_WEBHOOK_SECRET < /dev/tty
+    if [[ -z "$RESEND_WEBHOOK_SECRET" ]]; then echo -e "${RED}Webhook Secret is required.${NC}"; exit 1; fi
+else
+    echo -e "${GREEN}Using RESEND_WEBHOOK_SECRET from environment.${NC}"
+fi
 
 # 3. System Dependencies
 echo -e "\n${BLUE}Installing system dependencies...${NC}"
