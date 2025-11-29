@@ -1,4 +1,4 @@
-import { Email } from "./types";
+import { Email } from "bentotools";
 
 export default {
   reverser: (email: Email): string => {
