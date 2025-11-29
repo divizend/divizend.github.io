@@ -72,16 +72,11 @@ load_secrets_from_sops() {
                 # Remove quotes if present
                 value=$(echo "$value" | sed 's/^"//;s/"$//' | sed "s/^'//;s/'$//")
                 
-                # Export as environment variable if not already set
+                # Export as environment variable if not already set (env vars take precedence)
                 if [[ -n "$key" ]] && [[ -n "$value" ]]; then
-                    case "$key" in
-                        BENTO_API_URL|S2_BASIN|BASE_DOMAIN|S2_ACCESS_TOKEN|RESEND_API_KEY|SERVER_IP|TOOLS_ROOT_GITHUB|TEST_SENDER|RESEND_WEBHOOK_SECRET|GITHUB_PAT)
-                            # Only set if not already in environment (env vars take precedence)
-                            if [[ -z "${!key:-}" ]]; then
-                                export "$key=$value"
-                            fi
-                            ;;
-                    esac
+                    if [[ -z "${!key:-}" ]]; then
+                        export "$key=$value"
+                    fi
                 fi
             fi
         done < "$temp_secrets"
