@@ -5,6 +5,15 @@ input:
     auth_token: "${S2_ACCESS_TOKEN}"
     cache: s2_outbox_cache
 
+pipeline:
+  processors:
+    # Ensure the message is properly formatted as JSON for http_client
+    # S2 input parses JSON, but http_client needs it serialized
+    - bloblang: |
+        # The data from S2 is already a parsed JSON object
+        # http_client will serialize it automatically, but we need to ensure it's a proper object
+        root = this
+
 output:
   http_client:
     url: https://api.resend.com/emails
@@ -14,4 +23,3 @@ output:
       Content-Type: "application/json"
     retries: 3
     # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
-

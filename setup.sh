@@ -814,6 +814,20 @@ test_tool() {
     
     echo -e "${BLUE}Testing tool '${TOOL_NAME}': adding test email to S2 outbox stream, expecting '${EXPECTED_OUTPUT}'...${NC}"
     
+    # Clear any old messages from inbox stream to avoid processing duplicates
+    # Find s2 command (may be in ~/.s2/bin or system PATH)
+    export PATH="$HOME/.s2/bin:$HOME/.cargo/bin:$PATH"
+    S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
+    "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1
+    
+    # Clear inbox stream for this tool to avoid processing old messages
+    local INBOX_STREAM="inbox/${TOOL_NAME}"
+    set +e
+    # Try to delete and recreate the stream to clear old messages
+    "$S2_CMD" delete-stream "s2://${S2_BASIN}/${INBOX_STREAM}" >/dev/null 2>&1
+    "$S2_CMD" create-stream "s2://${S2_BASIN}/${INBOX_STREAM}" >/dev/null 2>&1
+    set -e
+    
     # Extract sender name from email address (e.g., "agent1@notifications.divizend.com" -> "Agent1")
     local SENDER_NAME
     SENDER_NAME=$(echo "${TEST_SENDER}" | cut -d'@' -f1 | sed 's/^./\U&/')
