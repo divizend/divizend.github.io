@@ -261,14 +261,15 @@ pipeline:
     # Verify Svix signature for webhook authenticity
     - bloblang: |
         # Extract Svix headers (case-insensitive)
-        # Bento http_server provides headers in meta.headers or this.meta.headers
-        let svix_id = this.meta.headers.get("svix-id") | this.meta.headers.get("Svix-Id") | this.meta.headers.get("svix-id") | ""
-        let svix_timestamp = this.meta.headers.get("svix-timestamp") | this.meta.headers.get("Svix-Timestamp") | this.meta.headers.get("svix-timestamp") | ""
-        let svix_signature = this.meta.headers.get("svix-signature") | this.meta.headers.get("Svix-Signature") | this.meta.headers.get("svix-signature") | ""
+        # Bento http_server provides headers in meta.headers
+        # Headers are accessed via meta.headers which is a map
+        let svix_id = meta.headers.get("svix-id") | meta.headers.get("Svix-Id") | ""
+        let svix_timestamp = meta.headers.get("svix-timestamp") | meta.headers.get("Svix-Timestamp") | ""
+        let svix_signature = meta.headers.get("svix-signature") | meta.headers.get("Svix-Signature") | ""
         
-        # Bento http_server provides the body as the root object
-        # The http_server input provides the body as a string that needs parsing
-        # Parse the JSON body
+        # Bento http_server provides the body as the root content
+        # The body is typically a string that needs parsing
+        # Parse the JSON body and pass through
         root = this.parse_json()
 
 output:
