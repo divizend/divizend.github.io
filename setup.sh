@@ -234,7 +234,7 @@ output_resources:
 # ------------------------------------------------------------------------------
 # Stream Definitions
 # ------------------------------------------------------------------------------
-stream_conf:
+streams:
   # ----------------------------------------------------
   # 1. Ingest: Webhook -> S2 Inbox
   # ----------------------------------------------------
@@ -339,8 +339,10 @@ if command -v bento > /dev/null 2>&1; then
     fi
     set -e  # Re-enable exit on error
     if [ $LINT_EXIT -ne 0 ] && [ -n "$LINT_OUTPUT" ]; then
-        echo -e "${YELLOW}Warning: Bento config validation had issues:${NC}"
+        echo -e "${RED}Error: Bento config validation failed:${NC}"
         echo "$LINT_OUTPUT" | sed 's/^/  /'
+        echo -e "${RED}Please fix the configuration errors above before continuing.${NC}"
+        exit 1
     fi
 fi
 systemctl daemon-reload
@@ -392,23 +394,6 @@ else
     echo -e "${RED}✗ Bento is not listening on port 4195${NC}"
     HEALTH_FAILED=true
     BENTO_FAILED=true
-fi
-
-# Check DNS resolution
-if [[ -n "$SERVER_IP" ]]; then
-    RESOLVED_IP=""
-    if command -v dig > /dev/null 2>&1; then
-        RESOLVED_IP=$(dig +short ${STREAM_DOMAIN} @8.8.8.8 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
-    elif command -v host > /dev/null 2>&1; then
-        RESOLVED_IP=$(host ${STREAM_DOMAIN} 8.8.8.8 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
-    fi
-    if [[ -n "$RESOLVED_IP" ]] && [[ "$RESOLVED_IP" == "$SERVER_IP" ]]; then
-        echo -e "${GREEN}✓ DNS is correctly configured${NC}"
-    else
-        echo -e "${YELLOW}⚠ DNS may not be fully propagated (resolved to: ${RESOLVED_IP:-not found})${NC}"
-    fi
-else
-    echo -e "${YELLOW}⚠ Could not verify DNS (server IP not detected)${NC}"
 fi
 
 # Check HTTPS endpoint (with timeout)
