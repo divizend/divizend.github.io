@@ -90,10 +90,10 @@ if [[ -f "/tmp/.sops.yaml" ]]; then
     # Add server public key to .sops.yaml if not present
     if ! grep -q "$SERVER_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
         echo -e "${BLUE}📝 Adding server public key to .sops.yaml...${NC}"
-        # Use TypeScript script to add key if bun is available
-        if command -v bun &> /dev/null && [[ -f "/tmp/scripts/secrets.ts" ]]; then
+        # Use bash script to add key if available
+        if [[ -f "/tmp/scripts/add-recipient.sh" ]]; then
             export SOPS_AGE_KEY=$(cat "$SERVER_AGE_KEY_FILE")
-            bun /tmp/scripts/secrets.ts add-recipient "$SERVER_PUBLIC_KEY" || {
+            bash /tmp/scripts/add-recipient.sh "$SERVER_PUBLIC_KEY" || {
                 # Fallback: simple sed approach
                 sed -i "s|age: >-|age: >-\\n      ${SERVER_PUBLIC_KEY},|" "${SCRIPT_DIR}/.sops.yaml"
             }

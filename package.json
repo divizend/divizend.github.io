@@ -4,13 +4,13 @@
   "description": "Setup scripts for Divizend stream processor",
   "private": true,
   "scripts": {
-    "secrets:get": "bun scripts/secrets.ts get",
-    "secrets:set": "bun scripts/secrets.ts set",
-    "secrets:delete": "bun scripts/secrets.ts delete",
-    "secrets:list": "bun scripts/secrets.ts list",
-    "secrets:edit": "bun scripts/secrets.ts edit",
-    "secrets:dump": "bun scripts/secrets.ts dump",
-    "secrets:add-recipient": "bun scripts/secrets.ts add-recipient"
+    "secrets:get": "bash -c 'export SOPS_AGE_KEY=\"${SOPS_AGE_KEY:-$(cat .age-key-local 2>/dev/null || echo)}\"; sops --get secrets.encrypted.yaml \"$1\"' --",
+    "secrets:set": "bash -c 'export SOPS_AGE_KEY=\"${SOPS_AGE_KEY:-$(cat .age-key-local 2>/dev/null || echo)}\"; sops --set \"$1\" \"$2\" secrets.encrypted.yaml' --",
+    "secrets:delete": "bash -c 'export SOPS_AGE_KEY=\"${SOPS_AGE_KEY:-$(cat .age-key-local 2>/dev/null || echo)}\"; sops --delete \"$1\" secrets.encrypted.yaml' --",
+    "secrets:list": "bash -c 'export SOPS_AGE_KEY=\"${SOPS_AGE_KEY:-$(cat .age-key-local 2>/dev/null || echo)}\"; sops -d secrets.encrypted.yaml 2>/dev/null | grep -E \"^[^#:]+:\" | cut -d: -f1 | sort'",
+    "secrets:edit": "bash -c 'export SOPS_AGE_KEY=\"${SOPS_AGE_KEY:-$(cat .age-key-local 2>/dev/null || echo)}\"; sops secrets.encrypted.yaml'",
+    "secrets:dump": "bash -c 'export SOPS_AGE_KEY=\"${SOPS_AGE_KEY:-$(cat .age-key-local 2>/dev/null || echo)}\"; sops -d secrets.encrypted.yaml'",
+    "secrets:add-recipient": "bash scripts/add-recipient.sh"
   },
   "devDependencies": {}
 }
