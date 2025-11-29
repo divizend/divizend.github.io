@@ -152,7 +152,7 @@ echo -e "3. Add GitHub secret ${BLUE}SOPS_AGE_KEY${NC} with the contents of ${BL
 echo -e "4. Commit ${BLUE}secrets.encrypted.yaml${NC} and ${BLUE}.sops.yaml${NC} to the repo"
 echo -e "5. ${RED}Never commit .age-key-* files (they contain private keys)${NC}"
 echo -e "\n${BLUE}Note: All secrets are stored in ${GREEN}secrets.encrypted.yaml${NC} (no .env file needed).${NC}"
-echo -e "${BLUE}Use ${GREEN}npm run secrets:edit${NC} to edit secrets, ${GREEN}npm run secrets:dump${NC} to view them, or ${GREEN}npm run secrets:set <key> <value>${NC} to set individual secrets.${NC}"
+echo -e "${BLUE}Use ${GREEN}npm run secrets edit${NC} to edit secrets, ${GREEN}npm run secrets dump${NC} to view them, or ${GREEN}npm run secrets set <key> <value>${NC} to set individual secrets.${NC}"
 echo -e "${YELLOW}Press Enter to continue...${NC}"
 read -r < /dev/tty || true
 
