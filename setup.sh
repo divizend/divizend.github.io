@@ -391,18 +391,18 @@ input_resources:
       region: "us-east-1"
       delete_objects: true
 
-    input:
-      resource: s2_outbox_reader
-      
-    output:
-      http_client:
-        url: https://api.resend.com/emails
-        verb: POST
-        headers:
+input:
+  resource: s2_outbox_reader
+
+output:
+  http_client:
+    url: https://api.resend.com/emails
+    verb: POST
+    headers:
       Authorization: "Bearer ${RESEND_API_KEY}"
       Content-Type: "application/json"
     retries: 3
-        # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
+    # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
 EOF
 
 # 8. Systemd Service Setup
