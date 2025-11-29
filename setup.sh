@@ -469,7 +469,7 @@ EOF
 
 # Stream 3: Send - S2 Outbox -> Resend API
 cat <<EOF > /etc/bento/streams/send_email.yaml
-    input:
+input:
   s2:
     basin: ${S2_BASIN}
     streams: outbox
