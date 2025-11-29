@@ -1,1 +1,19 @@
-.env
+# Secrets (never commit unencrypted)
+secrets.yaml
+age-key.txt
+*.key
+*.pem
+
+# SOPS
+.sops.yaml.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

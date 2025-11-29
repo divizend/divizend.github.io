@@ -75,7 +75,9 @@ async function fetchIndexTs(parsed: ParsedToolsRoot): Promise<string> {
 
   // Construct raw GitHub URL
   const pathPart = parsed.path ? `${parsed.path}/`.replace(/\/+$/, "") : "";
-  const rawUrl = `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${branch}${pathPart ? `/${pathPart}` : ""}/index.ts`;
+  const rawUrl = `https://raw.githubusercontent.com/${parsed.owner}/${
+    parsed.repo
+  }/${branch}${pathPart ? `/${pathPart}` : ""}/index.ts`;
 
   console.log(`📥 Fetching index.ts from ${rawUrl}...`);
 

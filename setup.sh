@@ -69,6 +69,20 @@ get_config_value RESEND_API_KEY "Enter Resend API Key (starts with re_)" "Resend
 # Tools Root GitHub Configuration (with default)
 get_config_value TOOLS_ROOT_GITHUB "Enter Tools Root GitHub URL (e.g., https://github.com/owner/repo/main/bentotools)" "Tools Root GitHub is required." "https://github.com/divizend/divizend.github.io/main/bentotools"
 
+# GitHub Actions Secrets Setup Instructions
+echo -e "\n${YELLOW}--- GitHub Actions Secrets Setup (Optional) ---${NC}"
+echo -e "${BLUE}To enable GitHub Actions to sync Bento streams automatically:${NC}"
+echo -e "1. Install SOPS: ${GREEN}brew install sops${NC} (macOS) or ${GREEN}curl -LO https://github.com/getsops/sops/releases/latest/download/sops-v3.8.1.linux && sudo mv sops-v3.8.1.linux /usr/local/bin/sops${NC} (Linux)"
+echo -e "2. Generate age keypair: ${GREEN}age-keygen -o age-key.txt${NC}"
+echo -e "3. Update ${BLUE}.sops.yaml${NC} with your age public key (starts with age1...)"
+echo -e "4. Create ${BLUE}secrets.yaml${NC} from ${BLUE}secrets.example.yaml${NC} and fill in your values"
+echo -e "5. Encrypt secrets: ${GREEN}sops -e secrets.yaml > secrets.encrypted.yaml${NC}"
+echo -e "6. Add GitHub secret ${BLUE}SOPS_AGE_KEY${NC} with the contents of ${BLUE}age-key.txt${NC} (the private key)"
+echo -e "7. Commit ${BLUE}secrets.encrypted.yaml${NC} and ${BLUE}.sops.yaml${NC} to the repo"
+echo -e "8. ${RED}Never commit age-key.txt or secrets.yaml (unencrypted)${NC}"
+echo -e "${YELLOW}Press Enter to continue...${NC}"
+read -r < /dev/tty || true
+
 # Webhook Setup Step
 WEBHOOK_URL="https://${STREAM_DOMAIN}/webhooks/resend"
 

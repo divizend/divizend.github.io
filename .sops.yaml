@@ -1,0 +1,11 @@
+# SOPS configuration for encrypting secrets
+# This file tells sops how to encrypt/decrypt secrets.encrypted.yaml
+
+creation_rules:
+  - path_regex: secrets\.encrypted\.yaml$
+    age: >-
+      age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    # Replace the above with your actual age public key
+    # Generate with: age-keygen -o age-key.txt
+    # Then use the public key (starts with age1) here
+
