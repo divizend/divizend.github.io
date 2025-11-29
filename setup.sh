@@ -86,13 +86,13 @@ get_config_value RESEND_API_KEY "Enter Resend API Key (starts with re_)" "Resend
 WEBHOOK_URL="https://${STREAM_DOMAIN}/webhooks/resend"
 
 if [[ -z "$RESEND_WEBHOOK_SECRET" ]]; then
-    echo -e "\n${YELLOW}--- Action Required ---${NC}"
-    echo -e "1. Go to your Resend Dashboard > Webhooks."
-    echo -e "2. Create a new Webhook."
-    echo -e "3. Set the Endpoint URL to: ${GREEN}${WEBHOOK_URL}${NC}"
+echo -e "\n${YELLOW}--- Action Required ---${NC}"
+echo -e "1. Go to your Resend Dashboard > Webhooks."
+echo -e "2. Create a new Webhook."
+echo -e "3. Set the Endpoint URL to: ${GREEN}${WEBHOOK_URL}${NC}"
     echo -e "4. Select ${GREEN}All Events${NC}"
-    echo -e "5. Create the webhook and copy the ${BLUE}Signing Secret${NC} (starts with whsec_)."
-    echo -e "-----------------------"
+echo -e "5. Create the webhook and copy the ${BLUE}Signing Secret${NC} (starts with whsec_)."
+echo -e "-----------------------"
     get_config_value RESEND_WEBHOOK_SECRET "Paste the Resend Webhook Secret here" "Webhook Secret is required."
 else
     echo -e "${GREEN}Using RESEND_WEBHOOK_SECRET from environment.${NC}"
@@ -231,7 +231,7 @@ if ! command -v bento &> /dev/null; then
         echo -e "${YELLOW}Trying alternative installation method...${NC}"
         # Alternative: try downloading the binary directly if available
         if curl -Lf --max-time 30 https://github.com/warpstreamlabs/bento/releases/latest/download/bento-linux-amd64 -o /usr/bin/bento 2>/dev/null; then
-            chmod +x /usr/bin/bento
+    chmod +x /usr/bin/bento
             if command -v bento &> /dev/null; then
                 echo -e "${GREEN}Bento installed successfully via alternative method.${NC}"
                 INSTALL_SUCCESS=true
@@ -269,20 +269,20 @@ output_resources:
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
 
-input:
-  http_server:
+    input:
+      http_server:
     path: /webhooks/resend
-    allowed_verbs: [POST]
-    timeout: 5s
-
-pipeline:
-  processors:
-    # In a strict production environment, you would verify the svix-signature here.
-    # Passing raw payload to stream for durability.
-    - mapping: root = this
-
-output:
-  resource: s2_inbox_writer
+        allowed_verbs: [POST]
+        timeout: 5s
+    
+    pipeline:
+      processors:
+        # In a strict production environment, you would verify the svix-signature here.
+        # Passing raw payload to stream for durability.
+        - mapping: root = this
+    
+    output:
+      resource: s2_inbox_writer
 EOF
 
 # Stream 2: Process - S2 Inbox -> Reverse Text -> S2 Outbox
@@ -310,34 +310,34 @@ output_resources:
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
 
-input:
-  resource: s2_inbox_reader
-
-pipeline:
-  processors:
-    - bloblang: |
-        # Extract relevant fields from Resend Payload
-        let original_text = this.data.text | ""
-        let sender = this.data.from
-        let subject = this.data.subject
+    input:
+      resource: s2_inbox_reader
+    
+    pipeline:
+      processors:
+        - bloblang: |
+            # Extract relevant fields from Resend Payload
+            let original_text = this.data.text | ""
+            let sender = this.data.from
+            let subject = this.data.subject
 
         # Automatically determine receiver (original sender) and sender (reverser@domain)
         let receiver = \$sender
         let sender_domain = "${BASE_DOMAIN}"
         let sender_email = "reverser@" + \$sender_domain
 
-        # Business Logic: Reverse the text
-        # Splitting by empty string creates array of chars, reverse array, join back
-        let reversed_text = \$original_text.split("").reverse().join("")
+            # Business Logic: Reverse the text
+            # Splitting by empty string creates array of chars, reverse array, join back
+            let reversed_text = \$original_text.split("").reverse().join("")
 
         # Construct Resend API Payload with automatically determined emails
         root.from = "Reverser <" + \$sender_email + ">"
         root.to = [\$receiver]
-        root.subject = "Re: " + \$subject
-        root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
+            root.subject = "Re: " + \$subject
+            root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
 
-output:
-  resource: s2_outbox_writer
+    output:
+      resource: s2_outbox_writer
 EOF
 
 # Stream 3: Egress - S2 Outbox -> Resend API
@@ -354,18 +354,18 @@ input_resources:
       region: "us-east-1"
       delete_objects: true
 
-input:
-  resource: s2_outbox_reader
-
-output:
-  http_client:
-    url: https://api.resend.com/emails
-    verb: POST
-    headers:
+    input:
+      resource: s2_outbox_reader
+      
+    output:
+      http_client:
+        url: https://api.resend.com/emails
+        verb: POST
+        headers:
       Authorization: "Bearer ${RESEND_API_KEY}"
-      Content-Type: "application/json"
-    retries: 3
-    # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
+          Content-Type: "application/json"
+        retries: 3
+        # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
 EOF
 
 # 8. Systemd Service Setup
@@ -512,11 +512,14 @@ else
     BENTO_FAILED=true
 fi
 
-# Check HTTPS endpoint (with timeout)
+# Check HTTPS endpoint (with timeout) - 404 is expected as there's no root route
 if curl -s --max-time 5 -o /dev/null -w "%{http_code}" https://${STREAM_DOMAIN} > /dev/null 2>&1; then
     HTTP_CODE=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" https://${STREAM_DOMAIN} 2>/dev/null)
     if [[ "$HTTP_CODE" =~ ^[23] ]]; then
         echo -e "${GREEN}✓ HTTPS endpoint is reachable (HTTP ${HTTP_CODE})${NC}"
+    elif [ "$HTTP_CODE" = "404" ]; then
+        # 404 is expected - there's no root route, only webhook endpoint
+        echo -e "${GREEN}✓ HTTPS endpoint is reachable (HTTP 404 is expected)${NC}"
     else
         echo -e "${YELLOW}⚠ HTTPS endpoint returned HTTP ${HTTP_CODE}${NC}"
     fi
@@ -547,7 +550,7 @@ if [ "$BENTO_FAILED" = true ]; then
             echo -e "${YELLOW}Updating service to use --chilled flag...${NC}"
             sed -i 's|ExecStart=/usr/bin/bento streams|ExecStart=/usr/bin/bento streams --chilled|' /etc/systemd/system/bento.service
             systemctl daemon-reload
-            systemctl restart bento
+systemctl restart bento
             sleep 5
         fi
         
@@ -612,13 +615,6 @@ if [ "$HEALTH_FAILED" = true ]; then
     fi
     exit 1
 fi
-
-echo -e "\n${GREEN}==============================================${NC}"
-echo -e "${GREEN}       Setup Complete Successfully!           ${NC}"
-echo -e "${GREEN}==============================================${NC}"
-echo -e "1. HTTPS is active at: https://${STREAM_DOMAIN}"
-echo -e "2. Webhook endpoint:   https://${STREAM_DOMAIN}/webhooks/resend"
-echo -e "3. Logic:              Email -> Webhook -> S2 -> Reverse -> Resend"
 
 # Test: Send test email if domains are detected
 echo -e "\n${BLUE}Checking Resend domains for test email...${NC}"
@@ -839,15 +835,34 @@ else
             if [ "$VERIFICATION_PASSED" = true ]; then
                 echo -e "${GREEN}✓ Test email processing pipeline verified successfully!${NC}"
                 echo -e "${GREEN}The reversed email with text '${EXPECTED_REVERSED_TEXT}' should arrive at ${TEST_SENDER}${NC}"
+                SETUP_SUCCESS=true
             else
                 echo -e "${YELLOW}⚠ Some verification checks failed. Check Bento logs for details:${NC}"
                 echo -e "${YELLOW}  journalctl -u bento -n 100 --no-pager${NC}"
                 echo -e "${YELLOW}Also check the inbox at ${TEST_SENDER} for the reversed response.${NC}"
+                SETUP_SUCCESS=false
             fi
         else
             ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.message' 2>/dev/null || echo "$TEST_RESPONSE")
             echo -e "${YELLOW}Test email failed: ${ERROR_MSG}${NC}"
             echo -e "\nSend a test email manually to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+            SETUP_SUCCESS=false
         fi
+    else
+        # No test email sent, but setup is complete
+        SETUP_SUCCESS=true
     fi
+else
+    # No domains detected, setup is complete
+    SETUP_SUCCESS=true
+fi
+
+# Show success message only at the very end if everything passed
+if [ "$SETUP_SUCCESS" = true ] && [ "$HEALTH_FAILED" != true ]; then
+echo -e "\n${GREEN}==============================================${NC}"
+echo -e "${GREEN}       Setup Complete Successfully!           ${NC}"
+echo -e "${GREEN}==============================================${NC}"
+echo -e "1. HTTPS is active at: https://${STREAM_DOMAIN}"
+    echo -e "2. Webhook endpoint:   https://${STREAM_DOMAIN}/webhooks/resend"
+echo -e "3. Logic:              Email -> Webhook -> S2 -> Reverse -> Resend"
 fi
