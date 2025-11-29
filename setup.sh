@@ -246,14 +246,8 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# Main configuration file with HTTP settings and shared resources
-cat <<EOF > /etc/bento/config.yaml
-# Global HTTP settings for the Bento instance
-http:
-  enabled: true
-  address: 0.0.0.0:4195
-
-# Resources shared across streams
+# Resources file (shared across streams)
+cat <<EOF > /etc/bento/resources.yaml
 input_resources:
   - label: s2_inbox_reader
     aws_s3:
@@ -371,7 +365,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/bento streams /etc/bento/config.yaml
+ExecStart=/usr/bin/bento streams --http.enabled=true --http.address=0.0.0.0:4195 --resources=/etc/bento/resources.yaml /etc/bento/streams
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
@@ -383,8 +377,8 @@ EOF
 # 9. Start Services
 echo -e "${BLUE}Starting Bento...${NC}"
 # Verify Bento config files exist
-if [ ! -f /etc/bento/config.yaml ]; then
-    echo -e "${RED}Error: Bento config file not found at /etc/bento/config.yaml${NC}"
+if [ ! -f /etc/bento/resources.yaml ]; then
+    echo -e "${RED}Error: Bento resources file not found at /etc/bento/resources.yaml${NC}"
     exit 1
 fi
 for stream_file in ingest_email.yaml process_reverser.yaml send_email.yaml; do
@@ -397,10 +391,10 @@ done
 if command -v bento > /dev/null 2>&1; then
     set +e  # Temporarily disable exit on error for lint check
     if command -v timeout > /dev/null 2>&1; then
-        LINT_OUTPUT=$(timeout 5 bento lint /etc/bento/config.yaml /etc/bento/streams/*.yaml 2>&1)
+        LINT_OUTPUT=$(timeout 5 bento lint /etc/bento/resources.yaml /etc/bento/streams/*.yaml 2>&1)
         LINT_EXIT=$?
     else
-        LINT_OUTPUT=$(bento lint /etc/bento/config.yaml /etc/bento/streams/*.yaml 2>&1)
+        LINT_OUTPUT=$(bento lint /etc/bento/resources.yaml /etc/bento/streams/*.yaml 2>&1)
         LINT_EXIT=$?
     fi
     set -e  # Re-enable exit on error
