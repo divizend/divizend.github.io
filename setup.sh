@@ -56,12 +56,7 @@ get_config_value S2_ACCESS_TOKEN "Enter S2 Access Token" "S2 Token is required."
 get_config_value RESEND_API_KEY "Enter Resend API Key (starts with re_)" "Resend API Key is required."
 
 # Tools Root Configuration (with default)
-if [[ -z "$TOOLS_ROOT" ]]; then
-    TOOLS_ROOT="https://setup.divizend.com/bentotools"
-    echo -e "${GREEN}Using default TOOLS_ROOT: ${TOOLS_ROOT}${NC}"
-else
-    echo -e "${GREEN}Using TOOLS_ROOT from environment: ${TOOLS_ROOT}${NC}"
-fi
+get_config_value TOOLS_ROOT "Enter Tools Root URL" "Tools Root is required." "https://setup.divizend.com/bentotools"
 
 # Webhook Setup Step
 WEBHOOK_URL="https://${STREAM_DOMAIN}/webhooks/resend"
@@ -247,19 +242,31 @@ if ! command -v s2 &> /dev/null; then
     ARCH=$(uname -m)
     [ "$ARCH" = "x86_64" ] && ARCH="amd64" || ARCH="arm64"
     
-    # Try to get latest release tag
-    S2_VERSION=$(curl -s https://api.github.com/repos/s2-streamstore/s2/releases/latest 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+    # Try multiple possible repository names and URL patterns
+    S2_REPOS=("s2-streamstore/s2" "s2streamstore/s2" "s2/s2")
+    S2_INSTALLED=false
     
-    if [[ -n "$S2_VERSION" ]]; then
-        S2_URL="https://github.com/s2-streamstore/s2/releases/download/${S2_VERSION}/s2-linux-${ARCH}"
-    else
-        # Fallback to direct binary URL pattern
-        S2_URL="https://github.com/s2-streamstore/s2/releases/latest/download/s2-linux-${ARCH}"
-    fi
+    for REPO in "${S2_REPOS[@]}"; do
+        # Try to get latest release tag
+        S2_VERSION=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+        
+        if [[ -n "$S2_VERSION" ]]; then
+            # Try different URL patterns
+            for URL_PATTERN in \
+                "https://github.com/${REPO}/releases/download/${S2_VERSION}/s2-linux-${ARCH}" \
+                "https://github.com/${REPO}/releases/download/${S2_VERSION}/s2_${S2_VERSION}_linux_${ARCH}" \
+                "https://github.com/${REPO}/releases/download/${S2_VERSION}/s2-${ARCH}-linux"
+            do
+                if curl -Lf "$URL_PATTERN" -o /usr/local/bin/s2 2>/dev/null && chmod +x /usr/local/bin/s2 && /usr/local/bin/s2 --version >/dev/null 2>&1; then
+                    echo -e "${GREEN}S2 CLI installed via binary from ${REPO}.${NC}"
+                    S2_INSTALLED=true
+                    break 2
+                fi
+            done
+        fi
+    done
     
-    if curl -Lf "$S2_URL" -o /usr/local/bin/s2 2>/dev/null && chmod +x /usr/local/bin/s2; then
-        echo -e "${GREEN}S2 CLI installed via binary.${NC}"
-    else
+    if [ "$S2_INSTALLED" = false ]; then
         # Fallback: try installing via cargo (requires build tools)
         echo -e "${YELLOW}Binary download failed, trying cargo install...${NC}"
         if ! command -v cargo &> /dev/null; then
@@ -268,22 +275,10 @@ if ! command -v s2 &> /dev/null; then
             export PATH="$HOME/.cargo/bin:$PATH"
         fi
         
-        # Install build-essential if not present (needed for cargo)
-        if ! command -v cc &> /dev/null; then
-            echo -e "${BLUE}Installing build-essential for cargo...${NC}"
-            apt-get update -qq && apt-get install -y build-essential >/dev/null 2>&1
-        fi
-        
-        export PATH="$HOME/.cargo/bin:$PATH"
-        if cargo install s2 --quiet 2>/dev/null; then
-            echo -e "${GREEN}S2 CLI installed via cargo.${NC}"
-            # Ensure cargo bin is in PATH
-            export PATH="$HOME/.cargo/bin:$PATH"
-        else
-            echo -e "${RED}Error: S2 CLI installation failed.${NC}"
-            echo -e "${YELLOW}You may need to install it manually from: https://s2.dev/docs/quickstart${NC}"
-            exit 1
-        fi
+        echo -e "${YELLOW}Binary download failed. S2 CLI must be installed manually.${NC}"
+        echo -e "${YELLOW}Please install from: https://s2.dev/docs/quickstart${NC}"
+        echo -e "${YELLOW}Or use: cargo install --git https://github.com/s2-streamstore/s2${NC}"
+        exit 1
     fi
     
     # Ensure cargo bin is in PATH for s2 command check
