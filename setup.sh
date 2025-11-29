@@ -797,15 +797,13 @@ test_tool() {
     export PATH="$HOME/.s2/bin:$HOME/.cargo/bin:$PATH"
     S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
     
-    # S2 CLI syntax: echo <data> | s2 add <basin>/<stream> [--access-token <token>]
-    if ! echo "$RESEND_PAYLOAD" | "$S2_CMD" add "${BASE_DOMAIN}/outbox" --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1; then
-        # Try alternative syntax without --access-token flag (if configured via s2 config)
-        if ! echo "$RESEND_PAYLOAD" | "$S2_CMD" add "${BASE_DOMAIN}/outbox" >/dev/null 2>&1; then
-            echo -e "${RED}✗ Failed to add test email to S2 outbox stream${NC}"
-            echo -e "${YELLOW}  Ensure S2 CLI is installed and configured: s2 config set --access-token <token>${NC}"
-            echo -e "${YELLOW}  Testing S2 CLI: $S2_CMD --help${NC}"
-            return 1
-        fi
+    # S2 CLI syntax: echo <data> | s2 append s2://<basin>/<stream>
+    # Access token is configured via s2 config set, not as a flag
+    if ! echo "$RESEND_PAYLOAD" | "$S2_CMD" append "s2://${BASE_DOMAIN}/outbox" >/dev/null 2>&1; then
+        echo -e "${RED}✗ Failed to add test email to S2 outbox stream${NC}"
+        echo -e "${YELLOW}  Ensure S2 CLI is installed and configured: s2 config set --access-token <token>${NC}"
+        echo -e "${YELLOW}  Testing S2 CLI: $S2_CMD append s2://${BASE_DOMAIN}/outbox < /dev/null${NC}"
+        return 1
     fi
     echo -e "${GREEN}✓ Test email added to S2 outbox stream${NC}"
     echo -e "${BLUE}Waiting for reply email with expected output '${EXPECTED_OUTPUT}'...${NC}"
