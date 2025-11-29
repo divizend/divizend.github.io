@@ -418,7 +418,53 @@ if systemctl is-active --quiet bento; then
 else
     systemctl start bento
 fi
-sleep 3  # Give Bento time to start and bind to port
+
+# Wait for Bento to start and verify it's running
+echo -e "${BLUE}Waiting for Bento to start...${NC}"
+MAX_WAIT=10
+WAIT_COUNT=0
+while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+    if systemctl is-active --quiet bento; then
+        # Check if it's actually listening on the port
+        if ss -tuln | grep -q ':4195 '; then
+            echo -e "${GREEN}Bento is running and listening on port 4195${NC}"
+            break
+        fi
+    fi
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+    sleep 1
+done
+
+# If Bento is not running, try to diagnose and fix
+if ! systemctl is-active --quiet bento; then
+    echo -e "${YELLOW}Bento service is not active, checking status...${NC}"
+    BENTO_STATUS=$(systemctl status bento --no-pager -l 2>&1 | head -n 20)
+    echo "$BENTO_STATUS" | sed 's/^/  /'
+    
+    # Try to restart it
+    echo -e "${YELLOW}Attempting to restart Bento...${NC}"
+    systemctl reset-failed bento 2>/dev/null || true
+    systemctl start bento
+    sleep 3
+    
+    # Check again
+    if ! systemctl is-active --quiet bento; then
+        echo -e "${YELLOW}Checking Bento logs for errors...${NC}"
+        BENTO_LOGS=$(journalctl -u bento -n 20 --no-pager 2>&1)
+        echo "$BENTO_LOGS" | sed 's/^/  /'
+        
+        # Try running Bento manually to see the error
+        echo -e "${YELLOW}Testing Bento configuration manually...${NC}"
+        if command -v bento > /dev/null 2>&1; then
+            set +e
+            BENTO_TEST=$(timeout 5 /usr/bin/bento streams /etc/bento/config.yaml --dry-run 2>&1 || /usr/bin/bento streams /etc/bento/config.yaml 2>&1 | head -n 10)
+            set -e
+            if [ -n "$BENTO_TEST" ]; then
+                echo "$BENTO_TEST" | sed 's/^/  /'
+            fi
+        fi
+    fi
+fi
 
 # 10. Health Checks
 echo -e "\n${BLUE}Running health checks...${NC}"
@@ -472,6 +518,31 @@ if curl -s --max-time 5 -o /dev/null -w "%{http_code}" https://${STREAM_DOMAIN} 
     fi
 else
     echo -e "${YELLOW}⚠ HTTPS endpoint is not reachable yet${NC}"
+fi
+
+# If Bento failed, try to fix it before giving up
+if [ "$BENTO_FAILED" = true ]; then
+    echo -e "\n${YELLOW}Attempting to fix Bento service...${NC}"
+    systemctl reset-failed bento 2>/dev/null || true
+    systemctl stop bento 2>/dev/null || true
+    sleep 2
+    systemctl start bento
+    sleep 5
+    
+    # Re-check Bento
+    BENTO_FIXED=false
+    if systemctl is-active --quiet bento && ss -tuln | grep -q ':4195 '; then
+        echo -e "${GREEN}Bento service is now running!${NC}"
+        BENTO_FIXED=true
+        BENTO_FAILED=false
+        HEALTH_FAILED=false
+    else
+        echo -e "${RED}Bento service still not running after fix attempt${NC}"
+        echo -e "${YELLOW}Showing Bento service status:${NC}"
+        systemctl status bento --no-pager -l | head -n 30 | sed 's/^/  /'
+        echo -e "${YELLOW}Showing recent Bento logs:${NC}"
+        journalctl -u bento -n 30 --no-pager | sed 's/^/  /'
+    fi
 fi
 
 if [ "$HEALTH_FAILED" = true ]; then
