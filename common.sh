@@ -164,39 +164,6 @@ ensure_service_running() {
     return 1
 }
 
-# Function to send email via Resend API
-# Usage: send_resend_email FROM TO SUBJECT TEXT [API_KEY]
-send_resend_email() {
-    local from="$1"
-    local to="$2"
-    local subject="$3"
-    local text="$4"
-    local api_key="${5:-$RESEND_API_KEY}"
-    
-    if [[ -z "$api_key" ]]; then
-        echo "Error: RESEND_API_KEY is required" >&2
-        return 1
-    fi
-    
-    local response
-    response=$(curl -s --max-time 10 -X POST https://api.resend.com/emails \
-        -H "Authorization: Bearer ${api_key}" \
-        -H "Content-Type: application/json" \
-        -d "{
-            \"from\": \"${from}\",
-            \"to\": [\"${to}\"],
-            \"subject\": \"${subject}\",
-            \"text\": \"${text}\"
-        }" 2>/dev/null)
-    
-    if echo "$response" | jq -e '.id' > /dev/null 2>&1; then
-        echo "$response" | jq -r '.id'
-        return 0
-    else
-        echo "$response" >&2
-        return 1
-    fi
-}
 
 # Function to check HTTPS endpoint
 # Usage: check_https_endpoint URL [EXPECTED_CODES]

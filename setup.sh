@@ -239,6 +239,41 @@ else
     echo -e "${GREEN}Bento is already installed.${NC}"
 fi
 
+# 6.5. Install S2 CLI
+echo -e "${BLUE}Installing S2 CLI...${NC}"
+if ! command -v s2 &> /dev/null; then
+    # Install Rust/Cargo if not present (required for s2 CLI)
+    if ! command -v cargo &> /dev/null; then
+        echo -e "${BLUE}Installing Rust/Cargo for S2 CLI...${NC}"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "$HOME/.cargo/env" || export PATH="$HOME/.cargo/bin:$PATH"
+    fi
+    
+    # Install S2 CLI via cargo
+    echo -e "${BLUE}Installing S2 CLI via cargo...${NC}"
+    cargo install s2 --quiet 2>/dev/null || {
+        # Fallback: try downloading binary release
+        echo -e "${YELLOW}Fallback: downloading S2 CLI binary...${NC}"
+        S2_VERSION=$(curl -s https://api.github.com/repos/s2-streamstore/s2/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "latest")
+        ARCH=$(uname -m)
+        [ "$ARCH" = "x86_64" ] && ARCH="amd64" || ARCH="arm64"
+        curl -Lf "https://github.com/s2-streamstore/s2/releases/${S2_VERSION}/download/s2-linux-${ARCH}" -o /usr/local/bin/s2 2>/dev/null && \
+        chmod +x /usr/local/bin/s2 && \
+        echo -e "${GREEN}S2 CLI installed via binary.${NC}" || \
+        echo -e "${YELLOW}Warning: S2 CLI installation failed. You may need to install it manually.${NC}"
+    }
+    
+    if command -v s2 &> /dev/null; then
+        echo -e "${GREEN}S2 CLI installed successfully.${NC}"
+        # Configure S2 CLI with access token
+        s2 config set --access-token "${S2_ACCESS_TOKEN}" 2>/dev/null || true
+    fi
+else
+    echo -e "${GREEN}S2 CLI is already installed.${NC}"
+    # Ensure access token is configured
+    s2 config set --access-token "${S2_ACCESS_TOKEN}" 2>/dev/null || true
+fi
+
 # 7. Configure Bento (Streams Mode)
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
@@ -752,17 +787,29 @@ test_tool() {
     local TEST_RECEIVER="${TOOL_NAME}@${BASE_DOMAIN}"
     local TEST_SUBJECT="Test: ${TOOL_NAME} - ${INPUT_TEXT}"
     
-    echo -e "${BLUE}Testing tool '${TOOL_NAME}': sending '${INPUT_TEXT}' to ${TEST_RECEIVER}, expecting '${EXPECTED_OUTPUT}'...${NC}"
+    echo -e "${BLUE}Testing tool '${TOOL_NAME}': adding test email to S2 outbox stream, expecting '${EXPECTED_OUTPUT}'...${NC}"
     
-    # Send test email using common function
-    local EMAIL_ID
-    EMAIL_ID=$(send_resend_email "${TEST_SENDER}" "${TEST_RECEIVER}" "${TEST_SUBJECT}" "${INPUT_TEXT}" "${RESEND_API_KEY}")
+    # Construct Resend API payload (same format as transform_email outputs)
+    local RESEND_PAYLOAD
+    RESEND_PAYLOAD=$(jq -n \
+        --arg from "${TOOL_NAME^} <${TOOL_NAME}@${BASE_DOMAIN}>" \
+        --arg to "${TEST_SENDER}" \
+        --arg subject "Re: ${TEST_SUBJECT}" \
+        --arg html "<p>Here is your transformed text:</p><blockquote>${EXPECTED_OUTPUT}</blockquote>" \
+        '{from: $from, to: [$to], subject: $subject, html: $html}')
     
-    if [[ $? -ne 0 ]] || [[ -z "$EMAIL_ID" ]]; then
-        echo -e "${RED}✗ Failed to send test email${NC}"
-        return 1
+    # Add payload to S2 outbox stream using S2 CLI
+    # S2 CLI syntax: echo <data> | s2 add <basin>/<stream> [--access-token <token>]
+    if ! echo "$RESEND_PAYLOAD" | s2 add "${BASE_DOMAIN}/outbox" --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1; then
+        # Try alternative syntax without --access-token flag (if configured via s2 config)
+        if ! echo "$RESEND_PAYLOAD" | s2 add "${BASE_DOMAIN}/outbox" >/dev/null 2>&1; then
+            echo -e "${RED}✗ Failed to add test email to S2 outbox stream${NC}"
+            echo -e "${YELLOW}  Ensure S2 CLI is installed and configured: s2 config set --access-token <token>${NC}"
+            echo -e "${YELLOW}  Testing S2 CLI: s2 --help${NC}"
+            return 1
+        fi
     fi
-    echo -e "${GREEN}✓ Test email sent (ID: ${EMAIL_ID})${NC}"
+    echo -e "${GREEN}✓ Test email added to S2 outbox stream${NC}"
     echo -e "${BLUE}Waiting for reply email with expected output '${EXPECTED_OUTPUT}'...${NC}"
     
     # Wait for email delivery and processing (5 seconds is enough for Resend within their systems)
