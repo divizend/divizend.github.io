@@ -285,7 +285,15 @@ S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
 # Ensure access token is configured (set it again to be sure)
 "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1
 
-if ! "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
+# Check if basin exists - use JSON output for more reliable parsing
+BASIN_EXISTS=false
+if "$S2_CMD" list-basins --json 2>/dev/null | jq -e ".[] | select(.name == \"${S2_BASIN}\")" >/dev/null 2>&1; then
+    BASIN_EXISTS=true
+elif "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
+    BASIN_EXISTS=true
+fi
+
+if [ "$BASIN_EXISTS" = false ]; then
     echo -e "${BLUE}Creating S2 basin '${S2_BASIN}'...${NC}"
     # Try creating the basin - retry a few times in case of transient issues
     # Temporarily disable exit on error for basin creation (permission issues are bugs)
