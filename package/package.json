@@ -1,0 +1,29 @@
+{
+  "name": "bentotools",
+  "version": "1.1.0",
+  "description": "Type definitions for Bento tools and Resend email webhooks",
+  "main": "index.ts",
+  "types": "index.ts",
+  "files": [
+    "index.ts",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepublishOnly": "echo 'Publishing bentotools package'"
+  },
+  "keywords": [
+    "bento",
+    "resend",
+    "email",
+    "types",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/divizend/divizend.github.io.git",
+    "directory": "bentotools"
+  }
+}
+

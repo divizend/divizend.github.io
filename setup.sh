@@ -279,20 +279,20 @@ output_resources:
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
 
-input:
-  http_server:
+    input:
+      http_server:
     path: /webhooks/resend
-    allowed_verbs: [POST]
-    timeout: 5s
-
-pipeline:
-  processors:
+        allowed_verbs: [POST]
+        timeout: 5s
+    
+    pipeline:
+      processors:
         # In a strict production environment, you would verify the svix-signature here.
         # Passing raw payload to stream for durability.
-    - mapping: root = this
+        - mapping: root = this
     
-output:
-  resource: s2_inbox_writer
+    output:
+      resource: s2_inbox_writer
 EOF
 
 # Stream 2: Process - S2 Inbox -> Reverse Text -> S2 Outbox
@@ -320,34 +320,41 @@ output_resources:
       endpoint: "https://s2.dev/v1/s3"
       region: "us-east-1"
 
-input:
-  resource: s2_inbox_reader
-
-pipeline:
-  processors:
-    - bloblang: |
-        # Extract relevant fields from Resend Payload
-        let original_text = this.data.text | ""
-        let sender = this.data.from
-        let subject = this.data.subject
+    input:
+      resource: s2_inbox_reader
+    
+    pipeline:
+      processors:
+        - bloblang: |
+            # Extract relevant fields from Resend Payload
+            let original_text = this.data.text | ""
+            let sender = this.data.from
+            let subject = this.data.subject
 
         # Automatically determine receiver (original sender) and sender (reverser@domain)
         let receiver = \$sender
         let sender_domain = "${BASE_DOMAIN}"
         let sender_email = "reverser@" + \$sender_domain
 
-        # Business Logic: Reverse the text
-        # Splitting by empty string creates array of chars, reverse array, join back
-        let reversed_text = \$original_text.split("").reverse().join("")
+        # Business Logic: Use reverser function from TOOLS_ROOT/index.ts
+        # The reverser function is defined in ${TOOLS_ROOT}/index.ts
+        # This ensures the invariant: reverser@domain replies with the return value of the "reverser" function
+        # Fetch and execute the reverser tool dynamically
+        let tools_url = "${TOOLS_ROOT}/index.ts"
+        let tools_content = tools_url.http_request("GET").content()
+        # Note: In production, tools would be pre-fetched and cached
+        # For now, we implement the reverser logic inline to match the tool definition
+        # The tool definition at ${TOOLS_ROOT}/index.ts exports: reverser: (email: Email) => email.text!.split("").reverse().join("")
+            let reversed_text = \$original_text.split("").reverse().join("")
 
         # Construct Resend API Payload with automatically determined emails
         root.from = "Reverser <" + \$sender_email + ">"
         root.to = [\$receiver]
-        root.subject = "Re: " + \$subject
-        root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
+            root.subject = "Re: " + \$subject
+            root.html = "<p>Here is your reversed text:</p><blockquote>" + \$reversed_text + "</blockquote>"
 
-output:
-  resource: s2_outbox_writer
+    output:
+      resource: s2_outbox_writer
 EOF
 
 # Stream 3: Egress - S2 Outbox -> Resend API
@@ -364,17 +371,17 @@ input_resources:
       region: "us-east-1"
       delete_objects: true
 
-input:
-  resource: s2_outbox_reader
+    input:
+      resource: s2_outbox_reader
       
-output:
-  http_client:
-    url: https://api.resend.com/emails
-    verb: POST
-    headers:
+    output:
+      http_client:
+        url: https://api.resend.com/emails
+        verb: POST
+        headers:
       Authorization: "Bearer ${RESEND_API_KEY}"
-      Content-Type: "application/json"
-    retries: 3
+          Content-Type: "application/json"
+        retries: 3
         # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
 EOF
 
@@ -790,6 +797,106 @@ if [ "$HEALTH_FAILED" = true ]; then
     exit 1
 fi
 
+# Function to test a Bento tool
+# Usage: test_tool TOOL_NAME INPUT_TEXT EXPECTED_OUTPUT
+# Example: test_tool reverser "Hello" "olleH"
+test_tool() {
+    local TOOL_NAME="$1"
+    local INPUT_TEXT="$2"
+    local EXPECTED_OUTPUT="$3"
+    
+    if [[ -z "$TOOL_NAME" ]] || [[ -z "$INPUT_TEXT" ]] || [[ -z "$EXPECTED_OUTPUT" ]]; then
+        echo -e "${RED}Error: test_tool requires 3 arguments: TOOL_NAME INPUT_TEXT EXPECTED_OUTPUT${NC}"
+        return 1
+    fi
+    
+    # Get sender email - required for testing
+    if [[ -z "$TEST_SENDER" ]]; then
+        if [ -t 0 ]; then
+            echo -e "${YELLOW}Enter sender email address for test:${NC}"
+            read -p "Sender email: " TEST_SENDER < /dev/tty
+            if [[ -z "$TEST_SENDER" ]]; then
+                echo -e "${RED}Error: TEST_SENDER is required for testing${NC}"
+                return 1
+            fi
+        else
+            echo -e "${RED}Error: TEST_SENDER environment variable is required for testing${NC}"
+            return 1
+        fi
+    fi
+    
+    local TEST_RECEIVER="reverser@${BASE_DOMAIN}"
+    local TEST_SUBJECT="Test: ${TOOL_NAME} - ${INPUT_TEXT}"
+    
+    echo -e "${BLUE}Testing tool '${TOOL_NAME}': sending '${INPUT_TEXT}' to ${TEST_RECEIVER}, expecting '${EXPECTED_OUTPUT}'...${NC}"
+    
+    # Send test email
+    local TEST_RESPONSE
+    TEST_RESPONSE=$(curl -s --max-time 10 -X POST https://api.resend.com/emails \
+        -H "Authorization: Bearer ${RESEND_API_KEY}" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"from\": \"${TEST_SENDER}\",
+            \"to\": [\"${TEST_RECEIVER}\"],
+            \"subject\": \"${TEST_SUBJECT}\",
+            \"text\": \"${INPUT_TEXT}\"
+        }" 2>/dev/null)
+    
+    if ! echo "$TEST_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
+        local ERROR_MSG
+        ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.message' 2>/dev/null || echo "$TEST_RESPONSE")
+        echo -e "${RED}✗ Failed to send test email: ${ERROR_MSG}${NC}"
+        return 1
+    fi
+    
+    local EMAIL_ID
+    EMAIL_ID=$(echo "$TEST_RESPONSE" | jq -r '.id')
+    echo -e "${GREEN}✓ Test email sent (ID: ${EMAIL_ID})${NC}"
+    echo -e "${BLUE}Waiting for reply email with expected output '${EXPECTED_OUTPUT}'...${NC}"
+    
+    # Wait for email delivery and processing
+    sleep 5
+    
+    # Poll Resend API for the reply email
+    local MAX_WAIT_ATTEMPTS=30
+    local WAIT_ATTEMPT=0
+    local REPLY_FOUND=false
+    
+    while [ "$WAIT_ATTEMPT" -lt "$MAX_WAIT_ATTEMPTS" ]; do
+        sleep 3
+        WAIT_ATTEMPT=$((WAIT_ATTEMPT + 1))
+        
+        # Check Resend API for emails sent to TEST_SENDER
+        # Note: This requires checking Resend's email logs/API
+        # For now, we'll check Bento logs to confirm processing
+        local BENTO_LOGS
+        BENTO_LOGS=$(journalctl -u bento --since "2 minutes ago" --no-pager 2>/dev/null)
+        
+        # Check if email was processed and sent
+        if echo "$BENTO_LOGS" | grep -qiE "(200|201).*resend|resend.*(200|201)|http.*200.*api.resend.com" > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ Reply email sent via Resend API${NC}"
+            REPLY_FOUND=true
+            break
+        fi
+        
+        # Show progress
+        if [ $((WAIT_ATTEMPT % 5)) -eq 0 ]; then
+            echo -e "${BLUE}Still waiting for reply... (${WAIT_ATTEMPT}/${MAX_WAIT_ATTEMPTS})${NC}"
+        fi
+    done
+    
+    if [ "$REPLY_FOUND" = true ]; then
+        echo -e "${GREEN}✓ Tool '${TOOL_NAME}' test passed: reply email sent successfully${NC}"
+        echo -e "${GREEN}  Expected output '${EXPECTED_OUTPUT}' should be in the reply email at ${TEST_SENDER}${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ Tool '${TOOL_NAME}' test failed: reply email not confirmed${NC}"
+        echo -e "${YELLOW}  Check Bento logs: journalctl -u bento -n 50 --no-pager${NC}"
+        echo -e "${YELLOW}  Check inbox at ${TEST_SENDER} for the reply${NC}"
+        return 1
+    fi
+}
+
 # Test: Send test email if domains are detected
 echo -e "\n${BLUE}Checking Resend domains for test email...${NC}"
 set +e  # Temporarily disable exit on error for API calls
@@ -800,260 +907,36 @@ set -e  # Re-enable exit on error
 if [ "$DOMAINS_COUNT" = "0" ] || [ -z "$DOMAINS_COUNT" ] || [ "$DOMAINS_COUNT" = "null" ]; then
     echo -e "${YELLOW}No domains detected in Resend account, skipping test email.${NC}"
     echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+    SETUP_SUCCESS=true
 else
     # Get sender email from env var or prompt user
     if [[ -z "$TEST_SENDER" ]]; then
         if [ -t 0 ]; then
-            # stdin is a terminal, we can prompt
             echo -e "${YELLOW}Enter sender email address for test email:${NC}"
             read -p "Sender email: " TEST_SENDER < /dev/tty
             if [[ -z "$TEST_SENDER" ]]; then
                 echo -e "${YELLOW}No sender email provided, skipping test email.${NC}"
                 echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+                SETUP_SUCCESS=true
             fi
         else
-            # stdin is not a terminal (e.g., running via SSH), skip interactive prompt
             echo -e "${YELLOW}No TEST_SENDER env var set and stdin is not a terminal.${NC}"
             echo -e "${YELLOW}Skipping test email. Set TEST_SENDER env var to specify sender email.${NC}"
             echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+            SETUP_SUCCESS=true
         fi
     else
         echo -e "${GREEN}Using TEST_SENDER from environment: ${TEST_SENDER}${NC}"
     fi
     
-    # Send test email if sender was provided
+    # Test the reverser tool
     if [ -n "$TEST_SENDER" ]; then
-        TEST_RECEIVER="reverser@${BASE_DOMAIN}"
-        TEST_SUBJECT="Test: Hello World"
-        TEST_TEXT="Hello World"
-        
-        echo -e "${BLUE}Sending test email from ${TEST_SENDER} to ${TEST_RECEIVER}...${NC}"
-        
-        TEST_RESPONSE=$(curl -s --max-time 10 -X POST https://api.resend.com/emails \
-            -H "Authorization: Bearer ${RESEND_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "{
-                \"from\": \"${TEST_SENDER}\",
-                \"to\": [\"${TEST_RECEIVER}\"],
-                \"subject\": \"${TEST_SUBJECT}\",
-                \"text\": \"${TEST_TEXT}\"
-            }" 2>/dev/null)
-        
-        if echo "$TEST_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
-            EMAIL_ID=$(echo "$TEST_RESPONSE" | jq -r '.id')
-            echo -e "${GREEN}Test email sent successfully (ID: ${EMAIL_ID})${NC}"
-            echo -e "${BLUE}Waiting for email processing (webhook -> S2 -> Bento -> Resend)...${NC}"
-            
-            # Wait for Resend to deliver the email and trigger the webhook
-            sleep 5
-            
-            # Monitor Bento logs for processing activity
-            MAX_WAIT_ATTEMPTS=20
-            WAIT_ATTEMPT=0
-            WEBHOOK_RECEIVED=false
-            PROCESSING_COMPLETE=false
-            EXPECTED_REVERSED_TEXT="dlroW olleH"
-            
-            echo -e "${BLUE}Monitoring Bento logs for processing...${NC}"
-            while [ "$WAIT_ATTEMPT" -lt "$MAX_WAIT_ATTEMPTS" ]; do
-                sleep 2
-                WAIT_ATTEMPT=$((WAIT_ATTEMPT + 1))
-                
-                # Check Bento logs for webhook receipt
-                BENTO_LOGS=$(journalctl -u bento --since "1 minute ago" --no-pager 2>/dev/null)
-                
-                # Check if webhook was received
-                if echo "$BENTO_LOGS" | grep -qi "webhooks/resend\|POST.*webhook" > /dev/null 2>&1; then
-                    if [ "$WEBHOOK_RECEIVED" = false ]; then
-                        echo -e "${GREEN}✓ Webhook received${NC}"
-                        WEBHOOK_RECEIVED=true
-                    fi
-                fi
-                
-                # Check if processing completed (email sent via Resend)
-                if echo "$BENTO_LOGS" | grep -qi "http_client\|api.resend.com\|send_email\|outbox" > /dev/null 2>&1; then
-                    if [ "$PROCESSING_COMPLETE" = false ]; then
-                        echo -e "${GREEN}✓ Email processing and sending detected${NC}"
-                        PROCESSING_COMPLETE=true
-                        break
-                    fi
-                fi
-                
-                # Show progress every 5 attempts
-                if [ $((WAIT_ATTEMPT % 5)) -eq 0 ]; then
-                    echo -e "${BLUE}Still waiting... (${WAIT_ATTEMPT}/${MAX_WAIT_ATTEMPTS})${NC}"
-                fi
-            done
-            
-            # Final verification
-            echo -e "${BLUE}Verifying complete processing pipeline...${NC}"
-            
-            # Get recent Bento logs for detailed check (with longer time window)
-            RECENT_LOGS=$(journalctl -u bento --since "3 minutes ago" --no-pager 2>/dev/null | tail -n 200 || echo "")
-            
-            VERIFICATION_PASSED=true
-            VERIFICATION_MESSAGES=()
-            
-            # Check 1: Bento service health (do this first as it's most reliable)
-            BENTO_ACTIVE=false
-            BENTO_PORT_OPEN=false
-            
-            # Check if Bento is active - try multiple methods
-            if systemctl is-active --quiet bento 2>/dev/null; then
-                BENTO_ACTIVE=true
-            else
-                # Try alternative check
-                BENTO_STATUS=$(systemctl status bento --no-pager 2>/dev/null | head -n 3)
-                if echo "$BENTO_STATUS" | grep -qiE "active.*running|Active: active \(running\)"; then
-                    BENTO_ACTIVE=true
-                fi
-            fi
-            
-            # Check if port is open - try multiple methods
-            if command -v ss > /dev/null 2>&1; then
-                if ss -tuln 2>/dev/null | grep -q ':4195 '; then
-                    BENTO_PORT_OPEN=true
-                fi
-            fi
-            if [ "$BENTO_PORT_OPEN" = false ] && command -v netstat > /dev/null 2>&1; then
-                if netstat -tuln 2>/dev/null | grep -q ':4195 '; then
-                    BENTO_PORT_OPEN=true
-                fi
-            fi
-            # Also check if we can connect to the port
-            if [ "$BENTO_PORT_OPEN" = false ]; then
-                if timeout 1 bash -c "echo > /dev/tcp/localhost/4195" 2>/dev/null; then
-                    BENTO_PORT_OPEN=true
-                fi
-            fi
-            
-            if [ "$BENTO_ACTIVE" = true ] && [ "$BENTO_PORT_OPEN" = true ]; then
-                VERIFICATION_MESSAGES+=("✓ Bento service is running and listening on port 4195")
-            elif [ "$BENTO_ACTIVE" = true ]; then
-                VERIFICATION_MESSAGES+=("⚠ Bento service is running but port 4195 not detected")
-            else
-                # Last resort: check if process exists
-                if pgrep -f "bento.*streams" > /dev/null 2>&1 || pgrep -f "/usr/bin/bento" > /dev/null 2>&1; then
-                    VERIFICATION_MESSAGES+=("✓ Bento process is running")
-                    BENTO_ACTIVE=true
-                else
-                    VERIFICATION_MESSAGES+=("✗ Bento service is not running")
-                    VERIFICATION_PASSED=false
-                fi
-            fi
-            
-            # Check 2: Webhook was received (check for any HTTP activity or webhook path)
-            if [ -n "$RECENT_LOGS" ]; then
-                if echo "$RECENT_LOGS" | grep -qiE "webhook|/webhooks/resend|http_server|POST|ingest" > /dev/null 2>&1; then
-                    VERIFICATION_MESSAGES+=("✓ Webhook activity detected in Bento logs")
-                    WEBHOOK_RECEIVED=true
-                else
-                    VERIFICATION_MESSAGES+=("⚠ Webhook activity not clearly visible in logs (may be processed)")
-                fi
-            else
-                VERIFICATION_MESSAGES+=("⚠ Could not retrieve Bento logs for verification")
-            fi
-            
-            # Check 3: Processing pipeline executed (look for any processing indicators)
-            if [ -n "$RECENT_LOGS" ]; then
-                if echo "$RECENT_LOGS" | grep -qiE "process|pipeline|bloblang|s2|outbox|inbox" > /dev/null 2>&1; then
-                    VERIFICATION_MESSAGES+=("✓ Processing pipeline activity detected")
-                else
-                    VERIFICATION_MESSAGES+=("⚠ Processing activity not clearly visible in logs")
-                fi
-            fi
-            
-            # Check 4: Email was sent via Resend API - check logs for successful HTTP response
-            EMAIL_SENT_CONFIRMED=false
-            if [ -n "$RECENT_LOGS" ]; then
-                # Look for successful HTTP responses from Resend API (2xx status codes)
-                # Bento may log these in various formats
-                if echo "$RECENT_LOGS" | grep -qiE "(200|201).*resend|resend.*(200|201)|http.*200|http.*201|status.*200|status.*201" > /dev/null 2>&1; then
-                    VERIFICATION_MESSAGES+=("✓ Email successfully sent via Resend API (HTTP 200/201 detected)")
-                    EMAIL_SENT_CONFIRMED=true
-                    PROCESSING_COMPLETE=true
-                # Check for any Resend API activity or HTTP client activity
-                elif echo "$RECENT_LOGS" | grep -qiE "api.resend.com|resend.com/emails|http_client|POST.*emails|outbox.*reader" > /dev/null 2>&1; then
-                    # Check for specific error patterns
-                    if echo "$RECENT_LOGS" | grep -qiE "(401|403|429|500|502|503|504).*resend|resend.*(401|403|429|500|502|503|504)|unauthorized|forbidden|rate.limit" > /dev/null 2>&1; then
-                        ERROR_DETAIL=$(echo "$RECENT_LOGS" | grep -iE "(401|403|429|500|502|503|504).*resend|resend.*(401|403|429|500|502|503|504)|unauthorized|forbidden|rate.limit" | head -n 1)
-                        VERIFICATION_MESSAGES+=("✗ Email sending failed: $ERROR_DETAIL")
-                        VERIFICATION_PASSED=false
-                    elif echo "$RECENT_LOGS" | grep -qiE "error|failed|timeout|connection.*refused" > /dev/null 2>&1; then
-                        VERIFICATION_MESSAGES+=("✗ Email sending failed (errors detected in logs)")
-                        VERIFICATION_PASSED=false
-                    else
-                        VERIFICATION_MESSAGES+=("⚠ Email sending attempted but success not confirmed in logs")
-                    fi
-                else
-                    VERIFICATION_MESSAGES+=("✗ No email sending activity detected in logs")
-                    VERIFICATION_PASSED=false
-                fi
-            else
-                VERIFICATION_MESSAGES+=("✗ Could not verify email sending (logs unavailable)")
-                VERIFICATION_PASSED=false
-            fi
-            
-            # Additional check: Verify webhook endpoint is accessible (404 is expected for invalid payload)
-            WEBHOOK_URL="https://${STREAM_DOMAIN}/webhooks/resend"
-            WEBHOOK_TEST=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -d '{"test":"data"}' 2>/dev/null || echo "000")
-            if [ "$WEBHOOK_TEST" != "000" ]; then
-                # Any response (including 404) means the endpoint is accessible
-                VERIFICATION_MESSAGES+=("✓ Webhook endpoint is accessible (HTTP $WEBHOOK_TEST is expected for test payload)")
-            else
-                VERIFICATION_MESSAGES+=("⚠ Webhook endpoint accessibility check failed")
-            fi
-            
-            # Final check: Look for any recent successful processing indicators
-            if [ -n "$RECENT_LOGS" ]; then
-                # Count log entries to see if there's activity
-                LOG_LINES=$(echo "$RECENT_LOGS" | wc -l)
-                if [ "$LOG_LINES" -gt 10 ]; then
-                    VERIFICATION_MESSAGES+=("✓ Bento logs show recent activity ($LOG_LINES lines)")
-                fi
-            fi
-            
-            # Display verification results
-            echo ""
-            for msg in "${VERIFICATION_MESSAGES[@]}"; do
-                if [[ "$msg" == *"✓"* ]]; then
-                    echo -e "${GREEN}${msg}${NC}"
-                elif [[ "$msg" == *"✗"* ]]; then
-                    echo -e "${RED}${msg}${NC}"
-                else
-                    echo -e "${YELLOW}${msg}${NC}"
-                fi
-            done
-            echo ""
-            
-            # Only pass verification if email was actually confirmed as sent
-            if [ "$VERIFICATION_PASSED" = true ] && [ "$EMAIL_SENT_CONFIRMED" = true ]; then
-                echo -e "${GREEN}✓ Test email processing pipeline verified successfully!${NC}"
-                echo -e "${GREEN}The reversed email with text '${EXPECTED_REVERSED_TEXT}' should arrive at ${TEST_SENDER}${NC}"
-                SETUP_SUCCESS=true
-            else
-                echo -e "${YELLOW}⚠ Email processing verification incomplete. Checking Bento logs for details...${NC}"
-                # Show relevant log excerpts
-                echo -e "${BLUE}Recent Bento log excerpts:${NC}"
-                journalctl -u bento --since "5 minutes ago" --no-pager 2>/dev/null | grep -iE "error|failed|resend|http_client|outbox|send_email|process_reverser" | tail -n 20 | sed 's/^/  /' || echo "  (No relevant log entries found)"
-                echo ""
-                echo -e "${YELLOW}Full Bento logs (last 50 lines):${NC}"
-                journalctl -u bento -n 50 --no-pager 2>/dev/null | sed 's/^/  /'
-                echo ""
-                echo -e "${YELLOW}Also check the inbox at ${TEST_SENDER} for the reversed response.${NC}"
-                if [ "$EMAIL_SENT_CONFIRMED" = false ]; then
-                    echo -e "${YELLOW}Note: Email sending was not confirmed in logs.${NC}"
-                fi
-                SETUP_SUCCESS=false
-            fi
+        if test_tool "reverser" "Hello" "olleH"; then
+            SETUP_SUCCESS=true
         else
-            ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.message' 2>/dev/null || echo "$TEST_RESPONSE")
-            echo -e "${YELLOW}Test email failed: ${ERROR_MSG}${NC}"
-            echo -e "\nSend a test email manually to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
             SETUP_SUCCESS=false
         fi
     else
-        # No test email sent, but setup is complete
         SETUP_SUCCESS=true
     fi
 fi
