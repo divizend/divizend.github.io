@@ -7,7 +7,8 @@ creation_rules:
     age: >-
       age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,
       age1yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy,
-      age1zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+      age1zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz,
+      age1g4xuh5wecvuz20s90uc2vhjw3ytg0g24wxrph9mezvyu6339w3nqqhvkz5
     # Multiple age public keys (comma-separated):
     # 1. Local machine public key (for editing secrets locally)
     # 2. Server public key (for decrypting during setup.sh)

@@ -30,7 +30,8 @@ else
 fi
 
 # Extract public key from local key file
-LOCAL_PUBLIC_KEY=$(grep "^public key:" "$LOCAL_AGE_KEY_FILE" | cut -d' ' -f4)
+# The public key is in a comment line like: # public key: age1...
+LOCAL_PUBLIC_KEY=$(grep "^# public key:" "$LOCAL_AGE_KEY_FILE" | cut -d' ' -f4)
 if [[ -z "$LOCAL_PUBLIC_KEY" ]]; then
     echo -e "${RED}Error: Could not extract public key from ${LOCAL_AGE_KEY_FILE}${NC}" >&2
     exit 1
