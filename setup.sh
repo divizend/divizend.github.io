@@ -477,7 +477,7 @@ if [ "$BASIN_EXISTS" = false ]; then
         fi
     done
     
-    # Final check - if basin still doesn't exist, check if it exists anyway (might be a list permission issue)
+    # Final check - if basin still doesn't exist, fail
     if [ "$CREATE_SUCCESS" = false ]; then
         # One final check - try to list basins to see if it exists
         sleep 2
@@ -490,7 +490,8 @@ if [ "$BASIN_EXISTS" = false ]; then
             else
                 echo -e "${RED}Error: S2 basin '${S2_BASIN}' could not be created or verified.${NC}" >&2
                 echo -e "${RED}This indicates an authentication or permission issue with the S2 access token.${NC}" >&2
-                echo -e "${RED}Please verify your S2_ACCESS_TOKEN has permission to create and list basins.${NC}" >&2
+                echo -e "${RED}The error message above shows: 'Invalid or missing access token'${NC}" >&2
+                echo -e "${RED}Please update your S2_ACCESS_TOKEN in secrets.encrypted.yaml using: npm run secrets set S2_ACCESS_TOKEN <new-token>${NC}" >&2
                 exit 1
             fi
         fi
