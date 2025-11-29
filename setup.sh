@@ -45,7 +45,7 @@ echo -e "\n${YELLOW}--- Action Required ---${NC}"
 echo -e "1. Go to your Resend Dashboard > Webhooks."
 echo -e "2. Create a new Webhook."
 echo -e "3. Set the Endpoint URL to: ${GREEN}${WEBHOOK_URL}${NC}"
-echo -e "4. Select ${GREEN}all events${NC}"
+echo -e "4. Select ${GREEN}All Events${NC}"
 echo -e "5. Create the webhook and copy the ${BLUE}Signing Secret${NC} (starts with whsec_)."
 echo -e "-----------------------"
 
@@ -75,7 +75,11 @@ ${STREAM_DOMAIN} {
     reverse_proxy localhost:4195
 }
 EOF
-systemctl reload caddy
+if systemctl is-active --quiet caddy; then
+    systemctl reload caddy
+else
+    systemctl start caddy
+fi
 
 # 6. Install Bento (Stream Processor)
 if ! command -v bento &> /dev/null; then
