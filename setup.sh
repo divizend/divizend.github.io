@@ -298,20 +298,14 @@ pipeline:
         # Validate required headers are present
         let headers_present = \$svix_id != "" && \$svix_timestamp != "" && \$svix_signature != ""
         
-        # Reject if validation fails - use error flag approach
+        # Reject if validation fails - return null/empty to filter out invalid requests
         if !\$headers_present || !\$signature_valid || !\$timestamp_valid {
-          root = this
-          root._signature_valid = false
-          root._error = "Invalid webhook: signature=" + \$signature_valid.string() + " timestamp=" + \$timestamp_valid.string() + " headers=" + \$headers_present.string()
+          # Invalid webhook - return empty/null to filter it out
+          root = null
         } else {
           # Signature valid, parse and pass through the JSON payload
           root = this.parse_json()
-          root._signature_valid = true
         }
-    
-    # Only process if signature was valid
-    - filter:
-        check: 'this._signature_valid == true'
 
 output:
   resource: s2_inbox_writer
