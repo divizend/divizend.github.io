@@ -173,30 +173,53 @@ if ! command -v bento &> /dev/null; then
     MAX_RETRIES=3
     RETRY_COUNT=0
     while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-        if curl -Lf --max-time 30 https://github.com/warpstreamlabs/bento/releases/latest/download/bento-linux-amd64.tar.gz -o "$BENTO_TMP" 2>/dev/null; then
-            # Verify the downloaded file is a valid gzip archive
-            if gzip -t "$BENTO_TMP" 2>/dev/null; then
-                tar -xz -C /usr/bin -f "$BENTO_TMP" bento
-                if [ $? -eq 0 ] && [ -f /usr/bin/bento ]; then
+        CURL_OUTPUT=$(curl -Lf --max-time 30 -w "%{http_code}" https://github.com/warpstreamlabs/bento/releases/latest/download/bento-linux-amd64.tar.gz -o "$BENTO_TMP" 2>&1)
+        HTTP_CODE=$(echo "$CURL_OUTPUT" | tail -n1)
+        if [ "$HTTP_CODE" = "200" ] && [ -s "$BENTO_TMP" ]; then
+            # Try to extract - tar.gz files can be extracted directly with tar
+            if tar -xz -C /usr/bin -f "$BENTO_TMP" bento 2>/dev/null; then
+                if [ -f /usr/bin/bento ]; then
                     chmod +x /usr/bin/bento
                     rm -f "$BENTO_TMP"
+                    echo -e "${GREEN}Bento installed successfully.${NC}"
                     break
-                else
-                    echo -e "${YELLOW}Extraction failed, retrying...${NC}"
                 fi
-            else
-                echo -e "${YELLOW}Downloaded file is corrupted, retrying...${NC}"
+            fi
+            # If tar extraction failed, try gzip decompression first
+            if gzip -t "$BENTO_TMP" 2>/dev/null; then
+                gunzip -c "$BENTO_TMP" | tar -x -C /usr/bin bento 2>/dev/null
+                if [ -f /usr/bin/bento ]; then
+                    chmod +x /usr/bin/bento
+                    rm -f "$BENTO_TMP"
+                    echo -e "${GREEN}Bento installed successfully.${NC}"
+                    break
+                fi
             fi
         fi
         RETRY_COUNT=$((RETRY_COUNT + 1))
         if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+            echo -e "${YELLOW}Download failed (HTTP $HTTP_CODE), retrying ($RETRY_COUNT/$MAX_RETRIES)...${NC}"
             sleep 2
         fi
+        rm -f "$BENTO_TMP"
     done
     rm -f "$BENTO_TMP"
     if ! command -v bento &> /dev/null; then
         echo -e "${RED}Error: Failed to install Bento after $MAX_RETRIES attempts${NC}"
-        exit 1
+        echo -e "${YELLOW}Trying alternative installation method...${NC}"
+        # Alternative: try downloading the binary directly if available
+        if curl -Lf --max-time 30 https://github.com/warpstreamlabs/bento/releases/latest/download/bento-linux-amd64 -o /usr/bin/bento 2>/dev/null; then
+            chmod +x /usr/bin/bento
+            if command -v bento &> /dev/null; then
+                echo -e "${GREEN}Bento installed successfully via alternative method.${NC}"
+            else
+                echo -e "${RED}Error: All Bento installation methods failed${NC}"
+                exit 1
+            fi
+        else
+            echo -e "${RED}Error: All Bento installation methods failed${NC}"
+            exit 1
+        fi
     fi
 else
     echo -e "${GREEN}Bento is already installed.${NC}"
