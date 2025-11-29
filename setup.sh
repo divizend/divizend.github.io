@@ -308,23 +308,23 @@ cat <<EOF > /etc/bento/streams/ingest_email.yaml
         allowed_verbs: [POST]
         timeout: 5s
     
-    pipeline:
-      processors:
+pipeline:
+  processors:
         # In a strict production environment, you would verify the svix-signature here.
         # Passing raw payload to stream for durability.
-        - mapping: root = this
+    - mapping: root = this
 
-    output:
-      resource: s2_inbox_writer
+output:
+  resource: s2_inbox_writer
 EOF
 
 # Stream 2: Process - S2 Inbox -> Reverse Text -> S2 Outbox
 cat <<EOF > /etc/bento/streams/process_reverser.yaml
-    input:
-      resource: s2_inbox_reader
+input:
+  resource: s2_inbox_reader
     
-    pipeline:
-      processors:
+pipeline:
+  processors:
         - bloblang: |
             # Extract relevant fields from Resend Payload
             let original_text = this.data.text | ""
