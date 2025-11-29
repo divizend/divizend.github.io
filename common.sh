@@ -10,15 +10,119 @@ if [[ -z "${GREEN:-}" ]]; then
     NC='\033[0m' # No Color
 fi
 
+# Function to update .env file with a key-value pair
+# Usage: update_env_file VAR_NAME VAR_VALUE
+update_env_file() {
+    local var_name="$1"
+    local var_value="$2"
+    # Try to get script directory from caller's context, fallback to current directory
+    local env_file=".env"
+    if [[ -n "${SCRIPT_DIR:-}" ]]; then
+        env_file="${SCRIPT_DIR}/.env"
+    elif [[ -n "${BASH_SOURCE[1]:-}" ]]; then
+        local caller_dir="$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)"
+        env_file="${caller_dir}/.env"
+    fi
+    
+    # Create .env if it doesn't exist
+    if [[ ! -f "$env_file" ]]; then
+        touch "$env_file"
+    fi
+    
+    # Remove existing entry if present
+    if grep -q "^${var_name}=" "$env_file" 2>/dev/null; then
+        # Use sed to update the line (works on both macOS and Linux)
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' "/^${var_name}=/d" "$env_file"
+        else
+            sed -i "/^${var_name}=/d" "$env_file"
+        fi
+    fi
+    
+    # Append new entry (escape special characters in value for shell)
+    # Use single quotes to safely handle values with spaces/special chars
+    local escaped_value
+    escaped_value=$(printf '%s\n' "$var_value" | sed "s/'/'\\\\''/g")
+    echo "${var_name}='${escaped_value}'" >> "$env_file"
+    echo -e "${BLUE}  → Saved ${var_name} to .env${NC}"
+}
+
+# Function to update SOPS encrypted secrets
+# Usage: update_sops_secret VAR_NAME VAR_VALUE
+update_sops_secret() {
+    local var_name="$1"
+    local var_value="$2"
+    # Try to get script directory from caller's context, fallback to current directory
+    local script_dir="."
+    if [[ -n "${SCRIPT_DIR:-}" ]]; then
+        script_dir="${SCRIPT_DIR}"
+    elif [[ -n "${BASH_SOURCE[1]:-}" ]]; then
+        script_dir="$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)"
+    fi
+    local secrets_file="${script_dir}/secrets.encrypted.yaml"
+    local sops_config="${script_dir}/.sops.yaml"
+    
+    # Check if SOPS is available
+    if ! command -v sops &> /dev/null; then
+        return 0  # Silently skip if SOPS not available
+    fi
+    
+    # Check if secrets.encrypted.yaml exists
+    if [[ ! -f "$secrets_file" ]]; then
+        return 0  # Silently skip if file doesn't exist
+    fi
+    
+    # Check if .sops.yaml exists
+    if [[ ! -f "$sops_config" ]]; then
+        return 0  # Silently skip if config doesn't exist
+    fi
+    
+    # Check if SOPS_AGE_KEY_FILE is set (for decryption)
+    if [[ -z "$SOPS_AGE_KEY_FILE" ]] && [[ -z "$SOPS_AGE_KEY" ]]; then
+        return 0  # Silently skip if key not available
+    fi
+    
+    # Set up age key file if SOPS_AGE_KEY is provided
+    local temp_key_file=""
+    if [[ -n "$SOPS_AGE_KEY" ]] && [[ -z "$SOPS_AGE_KEY_FILE" ]]; then
+        temp_key_file=$(mktemp)
+        echo "$SOPS_AGE_KEY" > "$temp_key_file"
+        export SOPS_AGE_KEY_FILE="$temp_key_file"
+    fi
+    
+    # Only update known secret keys that should be in secrets.yaml
+    case "$var_name" in
+        BENTO_API_URL|S2_BASIN|BASE_DOMAIN|S2_ACCESS_TOKEN|RESEND_API_KEY)
+            # Update the secret using sops
+            if sops --set "[\"${var_name}\"] \"${var_value}\"" "$secrets_file" > /dev/null 2>&1; then
+                echo -e "${GREEN}✓ Updated ${var_name} in encrypted secrets${NC}"
+            else
+                echo -e "${YELLOW}⚠ Failed to update ${var_name} in encrypted secrets (run ./sync-secrets.sh manually)${NC}" >&2
+            fi
+            ;;
+        *)
+            # Not a secret that goes in secrets.yaml, skip silently
+            ;;
+    esac
+    
+    # Clean up temp key file
+    if [[ -n "$temp_key_file" ]] && [[ -f "$temp_key_file" ]]; then
+        rm -f "$temp_key_file"
+    fi
+}
+
 # Function to get config value from environment or prompt user
 # Usage: get_config_value VAR_NAME "Prompt message" "Error message if empty" [DEFAULT_VALUE]
 # If DEFAULT_VALUE is provided and variable is not set, it will be used instead of prompting/erroring
+# Automatically saves to .env and SOPS secrets when a new value is entered
 get_config_value() {
     local var_name="$1"
     local prompt_msg="$2"
     local error_msg="$3"
     local default_value="$4"
     local var_value="${!var_name}"
+    local was_prompted=false
+    local script_dir="${SCRIPT_DIR:-$(pwd)}"
     
     if [[ -z "$var_value" ]]; then
         if [[ -n "$default_value" ]]; then
@@ -31,6 +135,7 @@ get_config_value() {
                 echo -e "${RED}${error_msg}${NC}" >&2
                 exit 1
             fi
+            was_prompted=true
         else
             # Non-interactive, variable not set, exit
             echo -e "${RED}Error: ${var_name} is required and not set in non-interactive mode.${NC}" >&2
@@ -42,6 +147,12 @@ get_config_value() {
     
     # Export the value back to the variable name
     eval "$var_name=\"$var_value\""
+    
+    # If value was prompted (user entered it manually), save to .env and SOPS
+    if [[ "$was_prompted" = true ]]; then
+        update_env_file "$var_name" "$var_value"
+        update_sops_secret "$var_name" "$var_value"
+    fi
 }
 
 # Function to check if a service is active
