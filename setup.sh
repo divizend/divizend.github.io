@@ -820,18 +820,14 @@ test_tool() {
     S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
     "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1
     
-    # Clear inbox and outbox streams to avoid processing old messages
+    # Clear inbox stream for this tool to avoid processing old messages
     local INBOX_STREAM="inbox/${TOOL_NAME}"
     set +e
-    # Try to delete and recreate streams to clear old messages
-    echo -e "${BLUE}Clearing old messages from streams...${NC}"
+    # Try to delete and recreate inbox stream to clear old messages
+    echo -e "${BLUE}Clearing old messages from inbox stream...${NC}"
     "$S2_CMD" delete-stream "s2://${S2_BASIN}/${INBOX_STREAM}" >/dev/null 2>&1
-    sleep 1
+    sleep 2
     "$S2_CMD" create-stream "s2://${S2_BASIN}/${INBOX_STREAM}" >/dev/null 2>&1
-    # Also clear outbox to avoid sending old messages
-    "$S2_CMD" delete-stream "s2://${S2_BASIN}/outbox" >/dev/null 2>&1
-    sleep 1
-    "$S2_CMD" create-stream "s2://${S2_BASIN}/outbox" >/dev/null 2>&1
     set -e
     
     # Extract sender name from email address (e.g., "agent1@notifications.divizend.com" -> "Agent1")
@@ -862,8 +858,11 @@ test_tool() {
     "$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1
     
     # Ensure the outbox stream exists (create it if it doesn't)
+    # Don't delete it - just ensure it exists to avoid "stream is being deleted" errors
     set +e
     "$S2_CMD" create-stream "s2://${S2_BASIN}/outbox" >/dev/null 2>&1
+    # Wait a moment to ensure stream is ready
+    sleep 1
     set -e
     
     # S2 CLI syntax: echo <data> | s2 append s2://<basin>/<stream>
