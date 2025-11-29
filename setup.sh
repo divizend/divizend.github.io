@@ -261,8 +261,8 @@ pipeline:
         let svix_signature = this.meta.headers.get("svix-signature") | this.meta.headers.get("Svix-Signature") | this.meta.headers.get("svix-signature") | ""
         
         # Get raw body content - Bento http_server provides body as root content
-        # Try different ways to get the raw body
-        let raw_body = this | string()
+        # Convert to string if needed
+        let raw_body = this | this.string() | this
         
         # If headers are missing, skip verification (for testing) but log
         # In production, you should verify signatures
