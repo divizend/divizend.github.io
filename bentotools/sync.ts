@@ -61,8 +61,21 @@ async function getDefaultBranch(owner: string, repo: string): Promise<string> {
   }
 }
 
-// Fetch index.ts from GitHub
+// Fetch index.ts - use local file if available, otherwise fetch from GitHub
 async function fetchIndexTs(parsed: ParsedToolsRoot): Promise<string> {
+  // First, try to use local index.ts if we're in a git repository
+  const localIndexPath = "./index.ts";
+  try {
+    const localFile = Bun.file(localIndexPath);
+    if (await localFile.exists()) {
+      console.log(`📥 Using local index.ts from ${process.cwd()}/${localIndexPath}...`);
+      return await localFile.text();
+    }
+  } catch (error) {
+    // Fall through to GitHub fetch
+  }
+
+  // Fallback: fetch from GitHub
   let branch = parsed.branch;
 
   // If branch not specified, get default branch
