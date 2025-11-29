@@ -487,8 +487,9 @@ pipeline:
         }
         
         # Build the payload ensuring all fields are present
+        # Use the to_array if it's not empty, otherwise keep original or use empty array
         root.from = this.from | ""
-        root.to = if $to_array.length() > 0 { $to_array } else { [""] }
+        root.to = if $to_array.type() == "array" { $to_array } else { this.to | [] }
         root.subject = this.subject | ""
         root.html = this.html | ""
 
