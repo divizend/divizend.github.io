@@ -260,22 +260,11 @@ pipeline:
         let svix_timestamp = this.meta.headers.get("svix-timestamp") | this.meta.headers.get("Svix-Timestamp") | this.meta.headers.get("svix-timestamp") | ""
         let svix_signature = this.meta.headers.get("svix-signature") | this.meta.headers.get("Svix-Signature") | this.meta.headers.get("svix-signature") | ""
         
-        # Get raw body content - Bento http_server provides body as root content
-        # Convert to string if needed
-        let raw_body = this | this.string() | this
-        
-        # If headers are missing, skip verification (for testing) but log
-        # In production, you should verify signatures
-        let headers_present = \$svix_id != "" && \$svix_timestamp != "" && \$svix_signature != ""
-        
-        # For now, accept webhooks if headers are present (signature verification to be implemented)
-        # TODO: Implement proper HMAC-SHA256 signature verification using Bento's crypto functions
-        # The signature verification requires computing HMAC-SHA256 which may need a custom processor
-        
-        # If headers are present, assume valid (for now - will add proper verification)
-        # If headers missing, still accept (for testing without Resend webhook)
-        # Parse and pass through the JSON payload
-        root = this.parse_json()
+        # Bento http_server provides the body as the root object
+        # If it's already parsed JSON, use it directly
+        # If it's a string, parse it
+        # The http_server input typically provides the body as a string that needs parsing
+        root = this.type() == "string" ? this.parse_json() : this
 
 output:
   aws_s3:
