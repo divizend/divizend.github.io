@@ -58,13 +58,33 @@ if [[ ! -f "$SERVER_AGE_KEY_FILE" ]]; then
         echo -e "${BLUE}Installing age...${NC}"
         # Install age (simple binary download)
         if [[ "$(uname -m)" == "x86_64" ]]; then
-            curl -LO https://github.com/FiloSottile/age/releases/latest/download/age-v1.1.1-linux-amd64.tar.gz
-            tar -xzf age-v1.1.1-linux-amd64.tar.gz
-            mv age/age /usr/local/bin/age
-            mv age/age-keygen /usr/local/bin/age-keygen
-            rm -rf age age-v1.1.1-linux-amd64.tar.gz
+            # Try to get the actual download URL from GitHub API
+            AGE_URL=$(curl -sf --max-time 10 https://api.github.com/repos/FiloSottile/age/releases/latest 2>/dev/null | grep -o 'https://[^"]*age[^"]*linux[^"]*amd64[^"]*\.tar\.gz' | head -n1)
+            if [ -z "$AGE_URL" ]; then
+                # Fallback to direct URL pattern
+                AGE_URL="https://github.com/FiloSottile/age/releases/latest/download/age-v1.1.1-linux-amd64.tar.gz"
+            fi
+            
+            AGE_TMP=$(mktemp)
+            if curl -Lf --max-time 30 "$AGE_URL" -o "$AGE_TMP" 2>/dev/null && [ -s "$AGE_TMP" ]; then
+                if tar -xzf "$AGE_TMP" 2>/dev/null; then
+                    mv age/age /usr/local/bin/age 2>/dev/null || true
+                    mv age/age-keygen /usr/local/bin/age-keygen 2>/dev/null || true
+                    rm -rf age "$AGE_TMP"
+                    echo -e "${GREEN}✓ Age installed successfully${NC}"
+                else
+                    echo -e "${RED}Error: Failed to extract age archive${NC}" >&2
+                    rm -f "$AGE_TMP"
+                    exit 1
+                fi
+            else
+                echo -e "${RED}Error: Failed to download age${NC}" >&2
+                rm -f "$AGE_TMP"
+                exit 1
+            fi
         else
             echo -e "${YELLOW}⚠ Unsupported architecture, please install age manually${NC}"
+            exit 1
         fi
     fi
     age-keygen -o "$SERVER_AGE_KEY_FILE"
