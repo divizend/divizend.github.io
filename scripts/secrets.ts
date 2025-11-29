@@ -193,82 +193,128 @@ async function editSecrets(): Promise<void> {
     const tempFile = join(tmpdir(), `secrets-edit-${Date.now()}.txt`);
     writeFileSync(tempFile, envFormat, "utf-8");
 
-     // Open in editor
-     // Check multiple environment variables and common editors
-     let editor = process.env.EDITOR || process.env.VISUAL;
+    // Open in editor
+    // Check multiple environment variables and common editors
+    let editor = process.env.EDITOR || process.env.VISUAL;
 
      // If no editor is set, find nano explicitly
      if (!editor) {
-       try {
-         const nanoPath = execSync("which nano", { encoding: "utf-8" }).trim();
-         if (nanoPath && existsSync(nanoPath)) {
-           editor = nanoPath;
+       // Try common paths first (more reliable than which)
+       const commonPaths = [
+         "/usr/bin/nano",
+         "/bin/nano",
+         "/opt/homebrew/bin/nano",
+       ];
+       for (const path of commonPaths) {
+         if (existsSync(path)) {
+           editor = path;
+           break;
          }
-       } catch {
-         // If which fails, try common paths
-         const commonPaths = [
-           "/usr/bin/nano",
-           "/bin/nano",
-           "/opt/homebrew/bin/nano",
-         ];
-         for (const path of commonPaths) {
-           if (existsSync(path)) {
-             editor = path;
-             break;
+       }
+       
+       // If not found in common paths, try which as fallback
+       if (!editor) {
+         try {
+           const nanoPath = execSync("which nano", { encoding: "utf-8" }).trim();
+           // Verify it's actually nano, not a symlink to vi
+           if (nanoPath && existsSync(nanoPath) && nanoPath.includes("nano")) {
+             editor = nanoPath;
            }
+         } catch {
+           // which failed, editor stays null
          }
        }
      }
 
-     if (!editor) {
-       throw new Error(
-         "No editor found. Please install nano or set $EDITOR environment variable."
-       );
-     }
+    if (!editor) {
+      throw new Error(
+        "No editor found. Please install nano or set $EDITOR environment variable."
+      );
+    }
 
      // Verify editor exists before trying to use it
      const editorParts = editor.split(/\s+/);
      let editorCmd = editorParts[0];
-     
-     // If editorCmd is not an absolute path, resolve it
+
+     // If editorCmd is already an absolute path, use it directly
+     // Only resolve if it's a relative path or command name
      if (!editorCmd.startsWith("/")) {
-       try {
-         const resolved = execSync(`which ${editorCmd}`, { encoding: "utf-8" }).trim();
-         if (resolved && existsSync(resolved)) {
-           editorCmd = resolved;
+       // For nano specifically, use known paths instead of which
+       if (editorCmd === "nano") {
+         const nanoPaths = [
+           "/usr/bin/nano",
+           "/bin/nano",
+           "/opt/homebrew/bin/nano",
+         ];
+         for (const path of nanoPaths) {
+           if (existsSync(path)) {
+             editorCmd = path;
+             break;
+           }
          }
-       } catch {
-         // which failed, try to find it in common paths
+       } else {
+         // For other editors, try which
+         try {
+           const resolved = execSync(`which ${editorCmd}`, {
+             encoding: "utf-8",
+           }).trim();
+           if (resolved && existsSync(resolved)) {
+             editorCmd = resolved;
+           }
+         } catch {
+           // which failed
+         }
        }
      }
-     
+
      if (!existsSync(editorCmd)) {
        throw new Error(`Editor "${editorCmd}" not found.`);
      }
-
-     console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
-     console.log(`${YELLOW}Debug: Using editor: ${editorCmd}, args: ${JSON.stringify([...editorParts.slice(1), tempFile])}${NC}`);
-
-     await new Promise<void>((resolve, reject) => {
-       // Use execFile for better control and to avoid shell interpretation
-       const editorArgs = [...editorParts.slice(1), tempFile];
-       
-       const proc = execFile(editorCmd, editorArgs, {
-         stdio: "inherit",
-       });
-
-       proc.on("exit", (code) => {
-         if (code === 0 || code === null) {
-           resolve();
-         } else {
-           reject(new Error(`Editor exited with code ${code}`));
+     
+     // Final safety check: if somehow we got vi, force nano
+     if (editorCmd.includes("vi") && !editorCmd.includes("nano")) {
+       console.log(`${YELLOW}Warning: Detected vi, forcing nano instead${NC}`);
+       const nanoPaths = [
+         "/usr/bin/nano",
+         "/bin/nano",
+         "/opt/homebrew/bin/nano",
+       ];
+       for (const path of nanoPaths) {
+         if (existsSync(path)) {
+           editorCmd = path;
+           break;
          }
-       });
+       }
+     }
 
-       proc.on("error", (error) => {
-         reject(new Error(`Failed to start editor: ${error.message}`));
-       });
-     });
+    console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
+    console.log(
+      `${YELLOW}Debug: Using editor: ${editorCmd}, args: ${JSON.stringify([
+        ...editorParts.slice(1),
+        tempFile,
+      ])}${NC}`
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      // Use execFile for better control and to avoid shell interpretation
+      const editorArgs = [...editorParts.slice(1), tempFile];
+
+      const proc = execFile(editorCmd, editorArgs, {
+        stdio: "inherit",
+      });
+
+      proc.on("exit", (code) => {
+        if (code === 0 || code === null) {
+          resolve();
+        } else {
+          reject(new Error(`Editor exited with code ${code}`));
+        }
+      });
+
+      proc.on("error", (error) => {
+        reject(new Error(`Failed to start editor: ${error.message}`));
+      });
+    });
 
     // Read edited file and parse
     const edited = readFileSync(tempFile, "utf-8");
