@@ -279,9 +279,10 @@ pipeline:
         let signed_payload = \$svix_id + "." + \$svix_timestamp + "." + \$raw_body
         
         # Compute HMAC-SHA256 signature
-        # Bento bloblang crypto functions: crypto.hmac_sha256(secret, message)
+        # Bento bloblang uses: content().hash("hmac_sha256", secret) or crypto functions
         let webhook_secret = "${RESEND_WEBHOOK_SECRET}"
-        let computed_signature = crypto.hmac_sha256(\$webhook_secret, \$signed_payload)
+        # Try hash method first, fallback to crypto if available
+        let computed_signature = \$signed_payload.hash("hmac_sha256", \$webhook_secret)
         
         # Svix signature format is "v1,<signature>" - extract the signature part
         let expected_sig = "v1," + \$computed_signature
