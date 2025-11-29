@@ -13,6 +13,28 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# Function to get config value from environment or prompt user
+# Usage: get_config_value VAR_NAME "Prompt message" "Error message if empty"
+get_config_value() {
+    local var_name="$1"
+    local prompt_msg="$2"
+    local error_msg="$3"
+    local var_value="${!var_name}"
+    
+    if [[ -z "$var_value" ]]; then
+        read -p "$prompt_msg: " var_value < /dev/tty
+        if [[ -z "$var_value" ]]; then
+            echo -e "${RED}${error_msg}${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${GREEN}Using ${var_name} from environment: ${var_value}${NC}"
+    fi
+    
+    # Export the value back to the variable name
+    eval "$var_name=\"$var_value\""
+}
+
 echo -e "${BLUE}Starting Stream Processor Setup...${NC}"
 
 # 1. Pre-flight Checks
@@ -25,12 +47,7 @@ fi
 echo -e "${YELLOW}--- Configuration ---${NC}"
 
 # Domain
-if [[ -z "$BASE_DOMAIN" ]]; then
-    read -p "Enter your Base Domain (e.g., mydomain.com): " BASE_DOMAIN < /dev/tty
-    if [[ -z "$BASE_DOMAIN" ]]; then echo -e "${RED}Domain is required.${NC}"; exit 1; fi
-else
-    echo -e "${GREEN}Using BASE_DOMAIN from environment: ${BASE_DOMAIN}${NC}"
-fi
+get_config_value BASE_DOMAIN "Enter your Base Domain (e.g., mydomain.com)" "Domain is required."
 STREAM_DOMAIN="streams.${BASE_DOMAIN}"
 SERVER_IP=$(hostname -I | awk '{print $1}' || curl -s ifconfig.me || echo "")
 echo -e "Service will be deployed at: ${GREEN}https://${STREAM_DOMAIN}${NC}"
@@ -59,20 +76,10 @@ else
 fi
 
 # S2 Configuration
-if [[ -z "$S2_ACCESS_TOKEN" ]]; then
-    read -p "Enter S2 Access Token: " S2_ACCESS_TOKEN < /dev/tty
-    if [[ -z "$S2_ACCESS_TOKEN" ]]; then echo -e "${RED}S2 Token is required.${NC}"; exit 1; fi
-else
-    echo -e "${GREEN}Using S2_ACCESS_TOKEN from environment.${NC}"
-fi
+get_config_value S2_ACCESS_TOKEN "Enter S2 Access Token" "S2 Token is required."
 
 # Resend API Key
-if [[ -z "$RESEND_API_KEY" ]]; then
-    read -p "Enter Resend API Key (starts with re_): " RESEND_API_KEY < /dev/tty
-    if [[ -z "$RESEND_API_KEY" ]]; then echo -e "${RED}Resend API Key is required.${NC}"; exit 1; fi
-else
-    echo -e "${GREEN}Using RESEND_API_KEY from environment.${NC}"
-fi
+get_config_value RESEND_API_KEY "Enter Resend API Key (starts with re_)" "Resend API Key is required."
 
 # Webhook Setup Step
 WEBHOOK_URL="https://${STREAM_DOMAIN}/webhooks/resend"
@@ -85,8 +92,7 @@ if [[ -z "$RESEND_WEBHOOK_SECRET" ]]; then
     echo -e "4. Select ${GREEN}All Events${NC}"
     echo -e "5. Create the webhook and copy the ${BLUE}Signing Secret${NC} (starts with whsec_)."
     echo -e "-----------------------"
-    read -p "Paste the Resend Webhook Secret here: " RESEND_WEBHOOK_SECRET < /dev/tty
-    if [[ -z "$RESEND_WEBHOOK_SECRET" ]]; then echo -e "${RED}Webhook Secret is required.${NC}"; exit 1; fi
+    get_config_value RESEND_WEBHOOK_SECRET "Paste the Resend Webhook Secret here" "Webhook Secret is required."
 else
     echo -e "${GREEN}Using RESEND_WEBHOOK_SECRET from environment.${NC}"
 fi
@@ -686,6 +692,98 @@ elif [ "$DOMAINS_COUNT" = "1" ]; then
         echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
     fi
 else
-    echo -e "${YELLOW}Multiple domains detected (${DOMAINS_COUNT}), skipping automatic test email.${NC}"
-    echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+    # Multiple domains detected - prompt user to select one
+    echo -e "${BLUE}Multiple domains detected (${DOMAINS_COUNT}):${NC}"
+    DOMAIN_INDEX=0
+    declare -a DOMAIN_ARRAY
+    while IFS= read -r domain_name; do
+        if [ -n "$domain_name" ] && [ "$domain_name" != "null" ]; then
+            DOMAIN_INDEX=$((DOMAIN_INDEX + 1))
+            DOMAIN_ARRAY[$DOMAIN_INDEX]="$domain_name"
+            echo -e "  ${DOMAIN_INDEX}. ${domain_name}"
+        fi
+    done < <(echo "$DOMAINS_JSON" | jq -r '.data[]?.name' 2>/dev/null)
+    
+    # Use env var or prompt for selection
+    if [[ -z "$TEST_DOMAIN" ]]; then
+        echo -e "${YELLOW}Select a domain to use for the test email (1-${DOMAIN_INDEX}):${NC}"
+        read -p "Enter domain number: " SELECTED_NUM < /dev/tty
+        if [[ -z "$SELECTED_NUM" ]] || ! [[ "$SELECTED_NUM" =~ ^[0-9]+$ ]] || [ "$SELECTED_NUM" -lt 1 ] || [ "$SELECTED_NUM" -gt "$DOMAIN_INDEX" ]; then
+            echo -e "${YELLOW}Invalid selection, skipping test email.${NC}"
+            echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+        else
+            TEST_DOMAIN="${DOMAIN_ARRAY[$SELECTED_NUM]}"
+            echo -e "${GREEN}Selected domain: ${TEST_DOMAIN}${NC}"
+        fi
+    else
+        echo -e "${GREEN}Using TEST_DOMAIN from environment: ${TEST_DOMAIN}${NC}"
+        # Validate that TEST_DOMAIN is in the list
+        DOMAIN_VALID=false
+        for domain in "${DOMAIN_ARRAY[@]}"; do
+            if [ "$domain" = "$TEST_DOMAIN" ]; then
+                DOMAIN_VALID=true
+                break
+            fi
+        done
+        if [ "$DOMAIN_VALID" = false ]; then
+            echo -e "${YELLOW}TEST_DOMAIN '${TEST_DOMAIN}' not found in available domains, skipping test email.${NC}"
+            echo -e "\nSend a test email to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+            TEST_DOMAIN=""
+        fi
+    fi
+    
+    # Send test email if domain was selected
+    if [ -n "$TEST_DOMAIN" ]; then
+        # Try agent1@notifications.TEST_DOMAIN first, then agent1@TEST_DOMAIN
+        TEST_SENDER="agent1@notifications.${TEST_DOMAIN}"
+        TEST_RECEIVER="reverser@${BASE_DOMAIN}"
+        TEST_SUBJECT="Test: Hello World"
+        TEST_TEXT="Hello World"
+        
+        echo -e "${BLUE}Sending test email from ${TEST_SENDER} to ${TEST_RECEIVER}...${NC}"
+        
+        TEST_RESPONSE=$(curl -s --max-time 10 -X POST https://api.resend.com/emails \
+            -H "Authorization: Bearer ${RESEND_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{
+                \"from\": \"${TEST_SENDER}\",
+                \"to\": [\"${TEST_RECEIVER}\"],
+                \"subject\": \"${TEST_SUBJECT}\",
+                \"text\": \"${TEST_TEXT}\"
+            }" 2>/dev/null)
+        
+        if echo "$TEST_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
+            EMAIL_ID=$(echo "$TEST_RESPONSE" | jq -r '.id')
+            echo -e "${GREEN}Test email sent successfully (ID: ${EMAIL_ID})${NC}"
+            echo -e "${BLUE}Waiting 10 seconds for email processing...${NC}"
+            sleep 10
+            echo -e "${GREEN}Expected: Email with reversed text 'dlroW olleH' should arrive at ${TEST_SENDER}${NC}"
+            echo -e "${YELLOW}Note: Check the inbox at ${TEST_SENDER} for the reversed response.${NC}"
+        else
+            # Try without notifications subdomain
+            TEST_SENDER="agent1@${TEST_DOMAIN}"
+            echo -e "${YELLOW}Retrying with ${TEST_SENDER}...${NC}"
+            TEST_RESPONSE=$(curl -s --max-time 10 -X POST https://api.resend.com/emails \
+                -H "Authorization: Bearer ${RESEND_API_KEY}" \
+                -H "Content-Type: application/json" \
+                -d "{
+                    \"from\": \"${TEST_SENDER}\",
+                    \"to\": [\"${TEST_RECEIVER}\"],
+                    \"subject\": \"${TEST_SUBJECT}\",
+                    \"text\": \"${TEST_TEXT}\"
+                }" 2>/dev/null)
+            
+            if echo "$TEST_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
+                EMAIL_ID=$(echo "$TEST_RESPONSE" | jq -r '.id')
+                echo -e "${GREEN}Test email sent successfully (ID: ${EMAIL_ID})${NC}"
+                echo -e "${BLUE}Waiting 10 seconds for email processing...${NC}"
+                sleep 10
+                echo -e "${GREEN}Expected: Email with reversed text 'dlroW olleH' should arrive at ${TEST_SENDER}${NC}"
+            else
+                ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.message' 2>/dev/null || echo "$TEST_RESPONSE")
+                echo -e "${YELLOW}Test email failed: ${ERROR_MSG}${NC}"
+                echo -e "\nSend a test email manually to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
+            fi
+        fi
+    fi
 fi
