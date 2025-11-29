@@ -354,7 +354,7 @@ EOF
 cat <<EOF > /etc/bento/streams/send_email.yaml
 input:
   resource: s2_outbox_reader
-      
+
 output:
   http_client:
     url: https://api.resend.com/emails
@@ -363,7 +363,7 @@ output:
       Authorization: "Bearer ${RESEND_API_KEY}"
       Content-Type: "application/json"
     retries: 3
-        # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
+    # If Resend fails, message stays in S2 (due to ack logic) or DLQ can be configured
 EOF
 
 # 8. Systemd Service Setup
@@ -377,7 +377,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/bento streams /etc/bento/streams
+ExecStart=/usr/bin/bento -c /etc/bento/config.yaml streams /etc/bento/streams
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
@@ -388,6 +388,15 @@ EOF
 
 # 9. Start Services
 echo -e "${BLUE}Starting Bento...${NC}"
+# Kill any stale Bento processes that might be holding port 4195
+if lsof -ti:4195 > /dev/null 2>&1; then
+    echo -e "${YELLOW}Killing stale process on port 4195...${NC}"
+    lsof -ti:4195 | xargs kill -9 2>/dev/null || true
+    sleep 2
+fi
+# Also stop the service if it's running to ensure clean start
+systemctl stop bento 2>/dev/null || true
+sleep 2
 # Verify Bento stream files exist
 for stream_file in ingest_email.yaml process_reverser.yaml send_email.yaml; do
     if [ ! -f /etc/bento/streams/$stream_file ]; then
