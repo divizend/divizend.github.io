@@ -187,8 +187,6 @@ echo -e "3. Set the Endpoint URL to: ${GREEN}${WEBHOOK_URL}${NC}"
 echo -e "5. Create the webhook and copy the ${BLUE}Signing Secret${NC} (starts with whsec_)."
 echo -e "-----------------------"
     get_config_value RESEND_WEBHOOK_SECRET "Paste the Resend Webhook Secret here" "Webhook Secret is required."
-else
-    echo -e "${GREEN}Using RESEND_WEBHOOK_SECRET from environment.${NC}"
 fi
 
 # 3. System Dependencies
