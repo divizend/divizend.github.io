@@ -470,20 +470,24 @@ input:
 
 pipeline:
   processors:
-    # Parse JSON if it's a string, otherwise use as-is
-    # Then ensure it's in the correct format for Resend API
+    # Ensure payload is in the correct format for Resend API
+    # Data from S2 should already be parsed JSON, but handle both cases
     - bloblang: |
-        # If the payload is a string, parse it as JSON
+        # If the payload is a string, try to parse it as JSON
         # Otherwise use it as-is (already parsed)
-        root = if this.type() == "string" { this.parse_json() } else { this }
+        let parsed = if this.type() == "string" {
+          this.parse_json() catch this
+        } else {
+          this
+        }
         
         # Ensure all required fields are present for Resend API
         # Resend expects: from, to (array), subject, html (or text)
         root = {
-          "from": this.from | "",
-          "to": this.to | [],
-          "subject": this.subject | "",
-          "html": this.html | ""
+          "from": $parsed.from | "",
+          "to": $parsed.to | [],
+          "subject": $parsed.subject | "",
+          "html": $parsed.html | ""
         }
 
 output:
