@@ -107,8 +107,8 @@ echo -e "${BLUE}Configuring Caddy for ${STREAM_DOMAIN}...${NC}"
 EXPECTED_CADDYFILE="/tmp/caddyfile.expected"
 # Export STREAM_DOMAIN for envsubst
 export STREAM_DOMAIN
-# Use template file with variable substitution
-envsubst < "${TEMPLATE_DIR}/caddy/Caddyfile.template" > "$EXPECTED_CADDYFILE"
+# Use template file with variable substitution (only STREAM_DOMAIN)
+envsubst '${STREAM_DOMAIN}' < "${TEMPLATE_DIR}/caddy/Caddyfile.template" > "$EXPECTED_CADDYFILE"
 
 # Check if Caddyfile needs updating (idempotent)
 CADDYFILE_CHANGED=false
@@ -395,7 +395,9 @@ envsubst < "${TEMPLATE_DIR}/bento/streams/send_email.yaml" > /etc/bento/streams/
 
 # 8. Systemd Service Setup
 echo -e "${BLUE}Configuring Systemd service...${NC}"
-envsubst < "${TEMPLATE_DIR}/systemd/bento.service" > /etc/systemd/system/bento.service
+envsubst '${TOOLS_ROOT}' < "${TEMPLATE_DIR}/systemd/bento.service" > /etc/systemd/system/bento.service
+envsubst '${TOOLS_ROOT}' < "${TEMPLATE_DIR}/systemd/bento-sync.service" > /etc/systemd/system/bento-sync.service
+envsubst '${TOOLS_ROOT}' < "${TEMPLATE_DIR}/systemd/bento-sync.timer" > /etc/systemd/system/bento-sync.timer
 
 # 9. Install Terraform and Setup Bento Tools Sync Daemon
 echo -e "${BLUE}Setting up Bento Tools Sync Daemon...${NC}"
