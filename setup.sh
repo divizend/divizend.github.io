@@ -310,7 +310,7 @@ pipeline:
     
     # Only process if signature was valid (not deleted)
     - filter:
-        bloblang: 'this != deleted()'
+        check: 'this != deleted()'
 
 output:
   resource: s2_inbox_writer
@@ -502,7 +502,7 @@ resource "null_resource" "bento_reload" {
       TOOLS_ROOT_VAL="\${var.tools_root}"
       curl -f -s -X POST "http://localhost:4195/admin/reload-tools" \\
         -H "Content-Type: application/json" \\
-        -d "{\\"tools_root\\": \\"\${TOOLS_ROOT_VAL}\\"}" \\
+        -d "{\\"tools_root\\": \\"\$TOOLS_ROOT_VAL\\"}" \\
         || systemctl reload bento || true
     EOT
   }
