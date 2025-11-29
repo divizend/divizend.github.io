@@ -5,7 +5,7 @@ This repository uses [SOPS](https://github.com/getsops/sops) with [age](https://
 ## Architecture
 
 The secrets are encrypted with **multiple recipients**, allowing:
-- **Local machine**: Edit secrets using `npm run secrets:edit`
+- **Local machine**: Edit secrets using `npm run secrets edit`
 - **Server**: Decrypt secrets during `setup.sh` execution
 - **GitHub Actions**: Decrypt secrets for CI/CD workflows
 
@@ -77,43 +77,55 @@ The `setup.sh` script automatically:
 ### Get a Secret
 
 ```bash
-npm run secrets:get <key>
-# Example: npm run secrets:get BASE_DOMAIN
+npm run secrets get <key>
+# Example: npm run secrets get BASE_DOMAIN
+# Or directly: bash scripts/secrets.sh get BASE_DOMAIN
 ```
 
 ### Set a Secret
 
 ```bash
-npm run secrets:set <key> <value>
-# Example: npm run secrets:set BASE_DOMAIN "example.com"
+npm run secrets set <key> <value>
+# Example: npm run secrets set BASE_DOMAIN "example.com"
+# Or directly: bash scripts/secrets.sh set BASE_DOMAIN "example.com"
+```
+
+### Delete a Secret
+
+```bash
+npm run secrets delete <key>
+# Example: npm run secrets delete OLD_KEY
+# Or directly: bash scripts/secrets.sh delete OLD_KEY
 ```
 
 ### List All Secrets
 
 ```bash
-npm run secrets:list
+npm run secrets list
+# Or directly: bash scripts/secrets.sh list
 ```
 
 ### Edit All Secrets
 
-Edit secrets as if they were a `.env` file:
+Edit secrets in your default editor:
 
 ```bash
-npm run secrets:edit
+npm run secrets edit
+# Or directly: bash scripts/secrets.sh edit
 ```
 
 This will:
 1. Decrypt `secrets.encrypted.yaml`
-2. Convert to a simple KEY=value format
-3. Open in your default editor (`$EDITOR` or `nano`)
-4. Convert back to YAML and re-encrypt
+2. Open in your default editor (`$EDITOR` or `nano`)
+3. Re-encrypt when you save and close
 
 ### View All Secrets
 
 Dump all decrypted secrets to stdout:
 
 ```bash
-npm run secrets:dump
+npm run secrets dump
+# Or directly: bash scripts/secrets.sh dump
 ```
 
 ### Add a Recipient
@@ -121,12 +133,13 @@ npm run secrets:dump
 Add a new recipient (public key) to `.sops.yaml`:
 
 ```bash
-npm run secrets:add-recipient <public-key>
+npm run secrets add-recipient <public-key>
+# Or directly: bash scripts/secrets.sh add-recipient <public-key>
 ```
 
 **Note:** After adding a recipient, you must re-encrypt secrets:
 ```bash
-npm run secrets:edit
+npm run secrets edit
 ```
 
 ## How It Works
