@@ -243,15 +243,20 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# In streams mode, config.yaml defines shared resources (caches, metrics, etc)
-# Cache resources are required for S2 inputs to track sequence numbers
+# In streams mode, config.yaml is minimal
+# Cache resources are defined in a separate file and loaded with -r flag
 cat <<EOF > /etc/bento/config.yaml
-resources:
-  caches:
-    s2_inbox_cache:
-      noop: {}
-    s2_outbox_cache:
-      noop: {}
+{}
+EOF
+
+# Create separate resources file for cache resources
+# These are loaded via -r flag in the systemd service
+cat <<EOF > /etc/bento/resources.yaml
+cache_resources:
+  - label: s2_inbox_cache
+    noop: {}
+  - label: s2_outbox_cache
+    noop: {}
 EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
@@ -357,7 +362,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/bento -c /etc/bento/config.yaml streams /etc/bento/streams
+ExecStart=/usr/bin/bento -c /etc/bento/config.yaml -r /etc/bento/resources.yaml streams /etc/bento/streams
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
