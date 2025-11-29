@@ -4,10 +4,10 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SECRETS_FILE="${SCRIPT_DIR}/../secrets.encrypted.yaml"
+SECRETS_FILE="${SCRIPT_DIR}/secrets.encrypted.yaml"
 
 # Source common functions
-source "${SCRIPT_DIR}/../common.sh"
+source "${SCRIPT_DIR}/common.sh"
 
 # Main command handler
 command="$1"

@@ -246,9 +246,8 @@ create_secrets_file_if_needed() {
 # Usage: sops_cmd [SOPS_ARGS...]
 # Automatically loads age key and sets up environment
 sops_cmd() {
-    # Ensure age key is loaded
+    # Ensure age key is loaded (error message is already printed by ensure_sops_age_key)
     ensure_sops_age_key || {
-        echo -e "${RED}Error: Could not load age key${NC}" >&2
         return 1
     }
     
@@ -330,7 +329,7 @@ update_sops_secret() {
     local script_dir=$(get_script_dir)
     local secrets_file="${script_dir}/secrets.encrypted.yaml"
     local sops_config="${script_dir}/.sops.yaml"
-    local secrets_script="${script_dir}/scripts/secrets.sh"
+    local secrets_script="${script_dir}/secrets.sh"
     
     # Check if SOPS is available
     if ! command -v sops &> /dev/null; then
@@ -350,7 +349,7 @@ update_sops_secret() {
         return 0  # Silently skip if key not available
     }
     
-    # Try to use scripts/secrets.sh if available (preferred method)
+    # Try to use secrets.sh if available (preferred method)
     if [[ -f "$secrets_script" ]] && [[ -x "$secrets_script" ]]; then
         if bash "$secrets_script" set "$var_name" "$var_value" > /dev/null 2>&1; then
             echo -e "${GREEN}✓ Updated ${var_name} in encrypted secrets${NC}"

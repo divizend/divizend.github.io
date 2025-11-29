@@ -4,7 +4,7 @@
   "description": "Setup scripts for Divizend stream processor",
   "private": true,
   "scripts": {
-    "secrets": "bash scripts/secrets.sh"
+    "secrets": "bash secrets.sh"
   },
   "devDependencies": {}
 }
