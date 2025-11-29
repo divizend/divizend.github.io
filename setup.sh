@@ -254,50 +254,52 @@ echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
 # Main configuration file with shared resources
+# In streams mode, resources are defined in a 'resources' section
 cat <<EOF > /etc/bento/config.yaml
-input_resources:
-  - label: s2_inbox_reader
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      prefix: inbox/reverser/
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-      delete_objects: true
+resources:
+  input_resources:
+    - label: s2_inbox_reader
+      aws_s3:
+        bucket: ${BASE_DOMAIN}
+        prefix: inbox/reverser/
+        credentials:
+          id: "${S2_ACCESS_TOKEN}"
+          secret: "${S2_ACCESS_TOKEN}"
+        endpoint: "https://s2.dev/v1/s3"
+        region: "us-east-1"
+        delete_objects: true
 
-  - label: s2_outbox_reader
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      prefix: outbox/
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
-      delete_objects: true
+    - label: s2_outbox_reader
+      aws_s3:
+        bucket: ${BASE_DOMAIN}
+        prefix: outbox/
+        credentials:
+          id: "${S2_ACCESS_TOKEN}"
+          secret: "${S2_ACCESS_TOKEN}"
+        endpoint: "https://s2.dev/v1/s3"
+        region: "us-east-1"
+        delete_objects: true
 
-output_resources:
-  - label: s2_inbox_writer
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      path: 'inbox/reverser/\${!uuid_v4()}.json'
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
+  output_resources:
+    - label: s2_inbox_writer
+      aws_s3:
+        bucket: ${BASE_DOMAIN}
+        path: 'inbox/reverser/\${!uuid_v4()}.json'
+        credentials:
+          id: "${S2_ACCESS_TOKEN}"
+          secret: "${S2_ACCESS_TOKEN}"
+        endpoint: "https://s2.dev/v1/s3"
+        region: "us-east-1"
 
-  - label: s2_outbox_writer
-    aws_s3:
-      bucket: ${BASE_DOMAIN}
-      path: 'outbox/\${!uuid_v4()}.json'
-      credentials:
-        id: "${S2_ACCESS_TOKEN}"
-        secret: "${S2_ACCESS_TOKEN}"
-      endpoint: "https://s2.dev/v1/s3"
-      region: "us-east-1"
+    - label: s2_outbox_writer
+      aws_s3:
+        bucket: ${BASE_DOMAIN}
+        path: 'outbox/\${!uuid_v4()}.json'
+        credentials:
+          id: "${S2_ACCESS_TOKEN}"
+          secret: "${S2_ACCESS_TOKEN}"
+        endpoint: "https://s2.dev/v1/s3"
+        region: "us-east-1"
 EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
