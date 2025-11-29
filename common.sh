@@ -181,11 +181,13 @@ get_config_value() {
             echo -e "${GREEN}Using default ${var_name}: ${var_value}${NC}"
         elif [ -t 0 ]; then # Check if stdin is a terminal
             read -p "$prompt_msg: " var_value < /dev/tty
-            if [[ -z "$var_value" ]]; then
+            if [[ -z "$var_value" ]] && [[ -n "$error_msg" ]]; then
                 echo -e "${RED}${error_msg}${NC}" >&2
                 exit 1
             fi
-            was_prompted=true
+            if [[ -n "$var_value" ]]; then
+                was_prompted=true
+            fi
         else
             # Non-interactive, variable not set, exit
             echo -e "${RED}Error: ${var_name} is required and not set in non-interactive mode.${NC}" >&2
