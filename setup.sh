@@ -164,7 +164,7 @@ get_config_value RESEND_API_KEY "Enter Resend API Key (starts with re_)" "Resend
 get_config_value TOOLS_ROOT_GITHUB "Enter Tools Root GitHub URL (e.g., https://github.com/owner/repo/main/bentotools)" "Tools Root GitHub is required." "https://github.com/divizend/divizend.github.io/main/bentotools"
 
 # GitHub Actions Secrets Setup Instructions
-echo -e "\n${YELLOW}--- GitHub Actions Secrets Setup (Optional) ---${NC}"
+echo -e "\n${YELLOW}--- GitHub Actions Secrets Setup ---${NC}"
 echo -e "${BLUE}To enable GitHub Actions to sync Bento streams automatically:${NC}"
 echo -e "1. Add GitHub secret ${BLUE}SOPS_AGE_KEY${NC} with the contents of ${BLUE}.age-key-github${NC} (the private key)"
 echo -e "2. The public key has already been added to ${BLUE}.sops.yaml${NC}"
