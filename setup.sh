@@ -75,11 +75,9 @@ ${STREAM_DOMAIN} {
     reverse_proxy localhost:4195
 }
 EOF
-if systemctl is-active --quiet caddy; then
-    systemctl reload caddy
-else
-    systemctl start caddy
-fi
+systemctl daemon-reload
+systemctl enable caddy
+systemctl reload-or-restart caddy
 
 # 6. Install Bento (Stream Processor)
 if ! command -v bento &> /dev/null; then
