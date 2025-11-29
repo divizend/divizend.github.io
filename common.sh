@@ -28,10 +28,14 @@ get_script_dir() {
 ensure_sops_age_key() {
     local age_key_file="${1:-}"
     local script_dir=$(get_script_dir)
+    local checked_paths=()
     
     # If SOPS_AGE_KEY_FILE is already set, we're good
     if [[ -n "$SOPS_AGE_KEY_FILE" ]] && [[ -f "$SOPS_AGE_KEY_FILE" ]]; then
         return 0
+    fi
+    if [[ -n "$SOPS_AGE_KEY_FILE" ]]; then
+        checked_paths+=("SOPS_AGE_KEY_FILE: $SOPS_AGE_KEY_FILE (not found)")
     fi
     
     # If SOPS_AGE_KEY is already set, create temp file if needed
@@ -41,11 +45,15 @@ ensure_sops_age_key() {
         export SOPS_AGE_KEY_FILE="$temp_key_file"
         return 0
     fi
+    if [[ -z "$SOPS_AGE_KEY" ]]; then
+        checked_paths+=("SOPS_AGE_KEY environment variable (not set)")
+    fi
     
     # Try to load from provided file or default location
     if [[ -z "$age_key_file" ]]; then
         age_key_file="${script_dir}/.age-key-local"
     fi
+    checked_paths+=("$age_key_file")
     
     if [[ -f "$age_key_file" ]]; then
         export SOPS_AGE_KEY=$(cat "$age_key_file")
@@ -56,6 +64,12 @@ ensure_sops_age_key() {
         return 0
     fi
     
+    # Failed to find key - show what we checked
+    echo -e "${RED}Error: Could not load age key${NC}" >&2
+    echo -e "${YELLOW}Checked the following paths:${NC}" >&2
+    for path in "${checked_paths[@]}"; do
+        echo -e "  - ${path}" >&2
+    done
     return 1
 }
 
