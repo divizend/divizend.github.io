@@ -287,9 +287,15 @@ if ! "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
     if "$S2_CMD" create-basin "${S2_BASIN}" >/dev/null 2>&1; then
         echo -e "${GREEN}S2 basin '${S2_BASIN}' created successfully.${NC}"
     else
-        echo -e "${RED}Error: Failed to create S2 basin '${S2_BASIN}'${NC}"
-        echo -e "${YELLOW}Please create it manually: s2 create-basin ${S2_BASIN}${NC}"
-        exit 1
+        echo -e "${YELLOW}Warning: Failed to create S2 basin '${S2_BASIN}' (may require permissions or already exist)${NC}"
+        echo -e "${YELLOW}Continuing anyway - basin may be created manually or by another process${NC}"
+        # Verify basin exists now (might have been created by another process)
+        sleep 1
+        if "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
+            echo -e "${GREEN}S2 basin '${S2_BASIN}' is now available.${NC}"
+        else
+            echo -e "${YELLOW}Note: If basin creation fails, ensure your S2 access token has basin creation permissions${NC}"
+        fi
     fi
 else
     echo -e "${GREEN}S2 basin '${S2_BASIN}' already exists.${NC}"
