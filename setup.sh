@@ -284,17 +284,25 @@ S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
 
 if ! "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
     echo -e "${BLUE}Creating S2 basin '${S2_BASIN}'...${NC}"
-    if "$S2_CMD" create-basin "${S2_BASIN}" >/dev/null 2>&1; then
+    CREATE_OUTPUT=$("$S2_CMD" create-basin "${S2_BASIN}" 2>&1)
+    CREATE_EXIT=$?
+    if [ $CREATE_EXIT -eq 0 ]; then
         echo -e "${GREEN}S2 basin '${S2_BASIN}' created successfully.${NC}"
     else
-        echo -e "${YELLOW}Warning: Failed to create S2 basin '${S2_BASIN}' (may require permissions or already exist)${NC}"
-        echo -e "${YELLOW}Continuing anyway - basin may be created manually or by another process${NC}"
+        echo -e "${YELLOW}Warning: Failed to create S2 basin '${S2_BASIN}'${NC}"
+        if echo "$CREATE_OUTPUT" | grep -q "not authorized\|permission"; then
+            echo -e "${YELLOW}Your S2 access token doesn't have permission to create basins.${NC}"
+            echo -e "${YELLOW}Please create the basin manually: s2 create-basin ${S2_BASIN}${NC}"
+            echo -e "${YELLOW}Or grant your access token basin creation permissions in the S2 dashboard.${NC}"
+        fi
         # Verify basin exists now (might have been created by another process)
         sleep 1
         if "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
             echo -e "${GREEN}S2 basin '${S2_BASIN}' is now available.${NC}"
         else
-            echo -e "${YELLOW}Note: If basin creation fails, ensure your S2 access token has basin creation permissions${NC}"
+            echo -e "${RED}Error: S2 basin '${S2_BASIN}' does not exist and could not be created.${NC}"
+            echo -e "${RED}Setup cannot continue without the basin. Please create it manually.${NC}"
+            exit 1
         fi
     fi
 else
