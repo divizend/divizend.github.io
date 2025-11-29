@@ -468,23 +468,8 @@ input:
     auth_token: "${S2_ACCESS_TOKEN}"
     cache: s2_outbox_cache
 
-pipeline:
-  processors:
-    # Ensure payload is in the correct format for Resend API
-    # Data from S2 should already be parsed JSON (Bento's s2 input parses JSON automatically)
-    # The transform_email stream already outputs the correct format, so just pass it through
-    # But ensure 'to' is always an array (Resend requirement)
-    - bloblang: |
-        # Pass through all fields, but ensure 'to' is an array
-        root = this
-        # If 'to' is not an array, convert it
-        root.to = if this.to.type() == "array" {
-          this.to
-        } else if this.to.type() == "string" {
-          [this.to]
-        } else {
-          this.to | []
-        }
+# No pipeline needed - transform_email already outputs correct format
+# Data from S2 is already parsed JSON with: from, to (array), subject, html
 
 output:
   http_client:
