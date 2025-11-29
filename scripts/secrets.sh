@@ -4,19 +4,10 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-AGE_KEY_FILE="${SCRIPT_DIR}/../.age-key-local"
 SECRETS_FILE="${SCRIPT_DIR}/../secrets.encrypted.yaml"
 
-# Function to load age key and execute SOPS command
-sops_cmd() {
-    # Load age key from file or environment
-    if [[ -z "$SOPS_AGE_KEY" ]] && [[ -f "$AGE_KEY_FILE" ]]; then
-        export SOPS_AGE_KEY=$(cat "$AGE_KEY_FILE")
-    fi
-    
-    # Execute SOPS command with remaining arguments
-    sops "$@" || exit $?
-}
+# Source common functions
+source "${SCRIPT_DIR}/../common.sh"
 
 # Main command handler
 command="$1"
@@ -43,19 +34,7 @@ case "$command" in
         VALUE="$2"
         
         # Create secrets.encrypted.yaml if it doesn't exist
-        if [[ ! -f "$SECRETS_FILE" ]]; then
-            SOPS_CONFIG="${SCRIPT_DIR}/../.sops.yaml"
-            if [[ ! -f "$SOPS_CONFIG" ]]; then
-                echo "Error: .sops.yaml not found. Please run deploy.sh first to set up encryption." >&2
-                exit 1
-            fi
-            # Create empty YAML file and encrypt it using SOPS
-            # Use sops -e to encrypt an empty YAML structure
-            echo "{}" | sops_cmd -e /dev/stdin > "$SECRETS_FILE" 2>&1 || {
-                echo "Error: Failed to create secrets.encrypted.yaml" >&2
-                exit 1
-            }
-        fi
+        create_secrets_file_if_needed || exit 1
         
         sops_cmd set "$SECRETS_FILE" "[\"${KEY}\"]" "\"${VALUE}\""
         echo "✓ Set ${KEY}"
@@ -89,27 +68,7 @@ case "$command" in
             exit 1
         fi
         PUBLIC_KEY="$1"
-        SOPS_CONFIG="${SCRIPT_DIR}/../.sops.yaml"
-        
-        if [[ ! -f "$SOPS_CONFIG" ]]; then
-            echo "Error: .sops.yaml not found at $SOPS_CONFIG" >&2
-            exit 1
-        fi
-        
-        # Check if key is already present
-        if grep -q "$PUBLIC_KEY" "$SOPS_CONFIG" 2>/dev/null; then
-            echo "✓ Public key already in .sops.yaml"
-            exit 0
-        fi
-        
-        # Add the key to the age recipients list
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s|age: >-|age: >-\\n      ${PUBLIC_KEY},|" "$SOPS_CONFIG"
-        else
-            sed -i "s|age: >-|age: >-\\n      ${PUBLIC_KEY},|" "$SOPS_CONFIG"
-        fi
-        
-        echo "✓ Added recipient to .sops.yaml"
+        add_sops_recipient "$PUBLIC_KEY" || exit 1
         # Note: Secrets will be automatically re-encrypted when next edited
         ;;
     

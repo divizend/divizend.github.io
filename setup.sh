@@ -52,57 +52,51 @@ echo -e "${BLUE}Setting up encrypted secrets...${NC}"
 
 # Check for or create server age keypair
 SERVER_AGE_KEY_FILE="/root/.age-key-server"
-if [[ ! -f "$SERVER_AGE_KEY_FILE" ]]; then
-    echo -e "${BLUE}🔑 Generating server age keypair...${NC}"
-    if ! command -v age-keygen &> /dev/null; then
-        echo -e "${BLUE}Installing age...${NC}"
-        # Install age (simple binary download)
-        if [[ "$(uname -m)" == "x86_64" ]]; then
-            # Try to get the actual download URL from GitHub API
-            AGE_URL=$(curl -sf --max-time 10 https://api.github.com/repos/FiloSottile/age/releases/latest 2>/dev/null | grep -o 'https://[^"]*age[^"]*linux[^"]*amd64[^"]*\.tar\.gz' | head -n1)
-            if [ -z "$AGE_URL" ]; then
-                # Fallback to direct URL pattern
-                AGE_URL="https://github.com/FiloSottile/age/releases/latest/download/age-v1.1.1-linux-amd64.tar.gz"
-            fi
-            
-            AGE_TMP=$(mktemp)
-            if curl -Lf --max-time 30 "$AGE_URL" -o "$AGE_TMP" 2>/dev/null && [ -s "$AGE_TMP" ]; then
-                if tar -xzf "$AGE_TMP" 2>/dev/null; then
-                    mv age/age /usr/local/bin/age 2>/dev/null || true
-                    mv age/age-keygen /usr/local/bin/age-keygen 2>/dev/null || true
-                    rm -rf age "$AGE_TMP"
-                    echo -e "${GREEN}✓ Age installed successfully${NC}"
-                else
-                    echo -e "${RED}Error: Failed to extract age archive${NC}" >&2
-                    rm -f "$AGE_TMP"
-                    exit 1
-                fi
+if ! command -v age-keygen &> /dev/null; then
+    echo -e "${BLUE}Installing age...${NC}"
+    # Install age (simple binary download)
+    if [[ "$(uname -m)" == "x86_64" ]]; then
+        # Try to get the actual download URL from GitHub API
+        AGE_URL=$(curl -sf --max-time 10 https://api.github.com/repos/FiloSottile/age/releases/latest 2>/dev/null | grep -o 'https://[^"]*age[^"]*linux[^"]*amd64[^"]*\.tar\.gz' | head -n1)
+        if [ -z "$AGE_URL" ]; then
+            # Fallback to direct URL pattern
+            AGE_URL="https://github.com/FiloSottile/age/releases/latest/download/age-v1.1.1-linux-amd64.tar.gz"
+        fi
+        
+        AGE_TMP=$(mktemp)
+        if curl -Lf --max-time 30 "$AGE_URL" -o "$AGE_TMP" 2>/dev/null && [ -s "$AGE_TMP" ]; then
+            if tar -xzf "$AGE_TMP" 2>/dev/null; then
+                mv age/age /usr/local/bin/age 2>/dev/null || true
+                mv age/age-keygen /usr/local/bin/age-keygen 2>/dev/null || true
+                rm -rf age "$AGE_TMP"
+                echo -e "${GREEN}✓ Age installed successfully${NC}"
             else
-                echo -e "${RED}Error: Failed to download age${NC}" >&2
+                echo -e "${RED}Error: Failed to extract age archive${NC}" >&2
                 rm -f "$AGE_TMP"
                 exit 1
             fi
         else
-            echo -e "${YELLOW}⚠ Unsupported architecture, please install age manually${NC}"
+            echo -e "${RED}Error: Failed to download age${NC}" >&2
+            rm -f "$AGE_TMP"
             exit 1
         fi
+    else
+        echo -e "${YELLOW}⚠ Unsupported architecture, please install age manually${NC}"
+        exit 1
     fi
-    age-keygen -o "$SERVER_AGE_KEY_FILE"
-    echo -e "${GREEN}✓ Server age keypair created${NC}"
-else
-    echo -e "${GREEN}✓ Using existing server age keypair${NC}"
 fi
 
+ensure_age_keypair "$SERVER_AGE_KEY_FILE" "server age keypair" || exit 1
+
 # Extract server public key
-# The public key is in a comment line like: # public key: age1...
-SERVER_PUBLIC_KEY=$(grep "^# public key:" "$SERVER_AGE_KEY_FILE" | cut -d' ' -f4)
+SERVER_PUBLIC_KEY=$(extract_age_public_key "$SERVER_AGE_KEY_FILE")
 if [[ -z "$SERVER_PUBLIC_KEY" ]]; then
     echo -e "${RED}Error: Could not extract public key from server keypair${NC}" >&2
     exit 1
 fi
 
 # Set SOPS_AGE_KEY for server operations
-export SOPS_AGE_KEY=$(cat "$SERVER_AGE_KEY_FILE")
+ensure_sops_age_key "$SERVER_AGE_KEY_FILE" || exit 1
 
 # Update .sops.yaml with server public key if copied from deploy.sh
 if [[ -f "/tmp/.sops.yaml" ]]; then

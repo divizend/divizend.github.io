@@ -21,6 +21,209 @@ get_script_dir() {
     fi
 }
 
+# Function to ensure SOPS age key is loaded and available
+# Usage: ensure_sops_age_key [AGE_KEY_FILE]
+# If AGE_KEY_FILE is provided, loads from that file
+# Otherwise tries to load from .age-key-local or uses existing SOPS_AGE_KEY
+ensure_sops_age_key() {
+    local age_key_file="${1:-}"
+    local script_dir=$(get_script_dir)
+    
+    # If SOPS_AGE_KEY_FILE is already set, we're good
+    if [[ -n "$SOPS_AGE_KEY_FILE" ]] && [[ -f "$SOPS_AGE_KEY_FILE" ]]; then
+        return 0
+    fi
+    
+    # If SOPS_AGE_KEY is already set, create temp file if needed
+    if [[ -n "$SOPS_AGE_KEY" ]] && [[ -z "$SOPS_AGE_KEY_FILE" ]]; then
+        local temp_key_file=$(mktemp)
+        echo "$SOPS_AGE_KEY" > "$temp_key_file"
+        export SOPS_AGE_KEY_FILE="$temp_key_file"
+        return 0
+    fi
+    
+    # Try to load from provided file or default location
+    if [[ -z "$age_key_file" ]]; then
+        age_key_file="${script_dir}/.age-key-local"
+    fi
+    
+    if [[ -f "$age_key_file" ]]; then
+        export SOPS_AGE_KEY=$(cat "$age_key_file")
+        # Create temp file for SOPS_AGE_KEY_FILE
+        local temp_key_file=$(mktemp)
+        echo "$SOPS_AGE_KEY" > "$temp_key_file"
+        export SOPS_AGE_KEY_FILE="$temp_key_file"
+        return 0
+    fi
+    
+    return 1
+}
+
+# Function to extract public key from age key file
+# Usage: extract_age_public_key AGE_KEY_FILE
+extract_age_public_key() {
+    local age_key_file="$1"
+    if [[ ! -f "$age_key_file" ]]; then
+        echo -e "${RED}Error: Age key file not found: ${age_key_file}${NC}" >&2
+        return 1
+    fi
+    # The public key is in a comment line like: # public key: age1...
+    grep "^# public key:" "$age_key_file" | cut -d' ' -f4
+}
+
+# Function to ensure age keypair exists, generates if needed
+# Usage: ensure_age_keypair AGE_KEY_FILE [KEY_NAME]
+# KEY_NAME is optional, used for display messages
+ensure_age_keypair() {
+    local age_key_file="$1"
+    local key_name="${2:-age keypair}"
+    
+    if [[ -f "$age_key_file" ]]; then
+        echo -e "${GREEN}✓ Using existing ${key_name}${NC}"
+        return 0
+    fi
+    
+    echo -e "${BLUE}🔑 Generating ${key_name}...${NC}"
+    if ! command -v age-keygen &> /dev/null; then
+        echo -e "${RED}Error: age-keygen is not installed${NC}" >&2
+        return 1
+    fi
+    
+    age-keygen -o "$age_key_file"
+    echo -e "${GREEN}✓ ${key_name} created at ${age_key_file}${NC}"
+    if [[ "$key_name" == *"local"* ]]; then
+        echo -e "${YELLOW}⚠ Keep this file secure and never commit it to git${NC}"
+    fi
+    return 0
+}
+
+# Function to ensure .sops.yaml exists with initial configuration
+# Usage: ensure_sops_config [PUBLIC_KEY]
+# If PUBLIC_KEY is provided, uses it as the initial recipient
+ensure_sops_config() {
+    local public_key="${1:-}"
+    local script_dir=$(get_script_dir)
+    local sops_config="${script_dir}/.sops.yaml"
+    
+    if [[ -f "$sops_config" ]]; then
+        return 0
+    fi
+    
+    echo -e "${YELLOW}⚠ .sops.yaml not found, creating it...${NC}"
+    if [[ -n "$public_key" ]]; then
+        cat > "$sops_config" <<EOF
+# SOPS configuration for encrypting secrets
+# This file supports multiple recipients (local, server, GitHub Actions)
+# Each recipient can decrypt the secrets using their private key
+
+creation_rules:
+  - path_regex: secrets\.encrypted\.yaml$
+    age: >-
+      ${public_key}
+    # Multiple age public keys (comma-separated):
+    # 1. Local machine public key (for editing secrets locally)
+    # 2. Server public key (for decrypting during setup.sh)
+    # 3. GitHub Actions public key (for CI/CD)
+    # Keys will be automatically added/updated by deploy.sh and setup.sh
+EOF
+    else
+        cat > "$sops_config" <<EOF
+# SOPS configuration for encrypting secrets
+# This file supports multiple recipients (local, server, GitHub Actions)
+# Each recipient can decrypt the secrets using their private key
+
+creation_rules:
+  - path_regex: secrets\.encrypted\.yaml$
+    age: >-
+    # Multiple age public keys (comma-separated):
+    # 1. Local machine public key (for editing secrets locally)
+    # 2. Server public key (for decrypting during setup.sh)
+    # 3. GitHub Actions public key (for CI/CD)
+    # Keys will be automatically added/updated by deploy.sh and setup.sh
+EOF
+    fi
+}
+
+# Function to add a recipient (public key) to .sops.yaml
+# Usage: add_sops_recipient PUBLIC_KEY
+add_sops_recipient() {
+    local public_key="$1"
+    local script_dir=$(get_script_dir)
+    local sops_config="${script_dir}/.sops.yaml"
+    
+    if [[ -z "$public_key" ]]; then
+        echo -e "${RED}Error: Public key is required${NC}" >&2
+        return 1
+    fi
+    
+    if [[ ! -f "$sops_config" ]]; then
+        echo -e "${RED}Error: .sops.yaml not found at ${sops_config}${NC}" >&2
+        return 1
+    fi
+    
+    # Check if key is already present
+    if grep -q "$public_key" "$sops_config" 2>/dev/null; then
+        echo -e "${GREEN}✓ Public key already in .sops.yaml${NC}"
+        return 0
+    fi
+    
+    # Add the key to the age recipients list
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s|age: >-|age: >-\\n      ${public_key},|" "$sops_config"
+    else
+        sed -i "s|age: >-|age: >-\\n      ${public_key},|" "$sops_config"
+    fi
+    
+    echo -e "${GREEN}✓ Added recipient to .sops.yaml${NC}"
+    return 0
+}
+
+# Function to create secrets.encrypted.yaml if it doesn't exist
+# Usage: create_secrets_file_if_needed
+create_secrets_file_if_needed() {
+    local script_dir=$(get_script_dir)
+    local secrets_file="${script_dir}/secrets.encrypted.yaml"
+    local sops_config="${script_dir}/.sops.yaml"
+    
+    if [[ -f "$secrets_file" ]]; then
+        return 0
+    fi
+    
+    if [[ ! -f "$sops_config" ]]; then
+        echo -e "${RED}Error: .sops.yaml not found. Please run deploy.sh first to set up encryption.${NC}" >&2
+        return 1
+    fi
+    
+    # Ensure age key is loaded
+    ensure_sops_age_key || {
+        echo -e "${RED}Error: Could not load age key for encryption${NC}" >&2
+        return 1
+    }
+    
+    # Create empty YAML file and encrypt it using SOPS
+    if echo "{}" | sops -e /dev/stdin > "$secrets_file" 2>/dev/null; then
+        echo -e "${GREEN}✓ Created secrets.encrypted.yaml${NC}"
+        return 0
+    else
+        echo -e "${RED}Error: Failed to create secrets.encrypted.yaml${NC}" >&2
+        return 1
+    fi
+}
+
+# Function to execute SOPS command with proper key setup
+# Usage: sops_cmd [SOPS_ARGS...]
+# Automatically loads age key and sets up environment
+sops_cmd() {
+    # Ensure age key is loaded
+    ensure_sops_age_key || {
+        echo -e "${RED}Error: Could not load age key${NC}" >&2
+        return 1
+    }
+    
+    # Execute SOPS command with remaining arguments
+    sops "$@" || return $?
+}
+
 # Function to decrypt and load secrets from SOPS encrypted file
 # Usage: load_secrets_from_sops
 load_secrets_from_sops() {
@@ -38,18 +241,10 @@ load_secrets_from_sops() {
         return 0  # Silently skip if file doesn't exist
     fi
     
-    # Check if we have a key to decrypt with
-    if [[ -z "$SOPS_AGE_KEY_FILE" ]] && [[ -z "$SOPS_AGE_KEY" ]]; then
+    # Ensure age key is loaded
+    ensure_sops_age_key || {
         return 0  # Silently skip if key not available
-    fi
-    
-    # Set up age key file if SOPS_AGE_KEY is provided
-    local temp_key_file=""
-    if [[ -n "$SOPS_AGE_KEY" ]] && [[ -z "$SOPS_AGE_KEY_FILE" ]]; then
-        temp_key_file=$(mktemp)
-        echo "$SOPS_AGE_KEY" > "$temp_key_file"
-        export SOPS_AGE_KEY_FILE="$temp_key_file"
-    fi
+    }
     
     # Decrypt secrets
     if sops -d "$secrets_file" > "$temp_secrets" 2>&1; then
@@ -93,11 +288,6 @@ load_secrets_from_sops() {
         # File doesn't have SOPS metadata - silently skip (will be created during setup)
         rm -f "$temp_secrets"
     fi
-    
-    # Clean up temp key file
-    if [[ -n "$temp_key_file" ]] && [[ -f "$temp_key_file" ]]; then
-        rm -f "$temp_key_file"
-    fi
 }
 
 # Function to update SOPS encrypted secrets
@@ -121,76 +311,27 @@ update_sops_secret() {
     fi
     
     # Create secrets.encrypted.yaml if it doesn't exist
-    if [[ ! -f "$secrets_file" ]]; then
-        # Set up age key file if SOPS_AGE_KEY is provided
-        local temp_key_file=""
-        if [[ -n "$SOPS_AGE_KEY" ]] && [[ -z "$SOPS_AGE_KEY_FILE" ]]; then
-            temp_key_file=$(mktemp)
-            echo "$SOPS_AGE_KEY" > "$temp_key_file"
-            export SOPS_AGE_KEY_FILE="$temp_key_file"
-        fi
-        
-        # Create empty YAML file and encrypt it using SOPS
-        # Use sops -e to encrypt an empty YAML structure
-        if echo "{}" | sops -e /dev/stdin > "$secrets_file" 2>/dev/null; then
-            echo -e "${GREEN}✓ Created secrets.encrypted.yaml${NC}"
-        else
-            # Clean up temp key file
-            if [[ -n "$temp_key_file" ]] && [[ -f "$temp_key_file" ]]; then
-                rm -f "$temp_key_file"
-            fi
-            echo -e "${YELLOW}⚠ Failed to create secrets.encrypted.yaml${NC}" >&2
-            return 0
-        fi
-        
-        # Clean up temp key file
-        if [[ -n "$temp_key_file" ]] && [[ -f "$temp_key_file" ]]; then
-            rm -f "$temp_key_file"
-        fi
-    fi
+    create_secrets_file_if_needed || return 0
     
-    # Check if SOPS_AGE_KEY_FILE is set (for decryption)
-    if [[ -z "$SOPS_AGE_KEY_FILE" ]] && [[ -z "$SOPS_AGE_KEY" ]]; then
-        # Try to load from .age-key-local if it exists
-        local age_key_file="${script_dir}/.age-key-local"
-        if [[ -f "$age_key_file" ]]; then
-            export SOPS_AGE_KEY=$(cat "$age_key_file")
-        else
-            return 0  # Silently skip if key not available
-        fi
-    fi
-    
-    # Set up age key file if SOPS_AGE_KEY is provided
-    local temp_key_file=""
-    if [[ -n "$SOPS_AGE_KEY" ]] && [[ -z "$SOPS_AGE_KEY_FILE" ]]; then
-        temp_key_file=$(mktemp)
-        echo "$SOPS_AGE_KEY" > "$temp_key_file"
-        export SOPS_AGE_KEY_FILE="$temp_key_file"
-    fi
+    # Ensure age key is loaded
+    ensure_sops_age_key || {
+        return 0  # Silently skip if key not available
+    }
     
     # Try to use scripts/secrets.sh if available (preferred method)
     if [[ -f "$secrets_script" ]] && [[ -x "$secrets_script" ]]; then
         if bash "$secrets_script" set "$var_name" "$var_value" > /dev/null 2>&1; then
             echo -e "${GREEN}✓ Updated ${var_name} in encrypted secrets${NC}"
-            # Clean up temp key file
-            if [[ -n "$temp_key_file" ]] && [[ -f "$temp_key_file" ]]; then
-                rm -f "$temp_key_file"
-            fi
             return 0
         fi
     fi
     
     # Fallback: use sops directly with correct syntax
     # SOPS syntax: sops set secrets.encrypted.yaml '["key"]' "value"
-    if sops set "$secrets_file" "[\"${var_name}\"]" "\"${var_value}\"" > /dev/null 2>&1; then
+    if sops_cmd set "$secrets_file" "[\"${var_name}\"]" "\"${var_value}\"" > /dev/null 2>&1; then
         echo -e "${GREEN}✓ Updated ${var_name} in encrypted secrets${NC}"
     else
         echo -e "${YELLOW}⚠ Failed to update ${var_name} in encrypted secrets${NC}" >&2
-    fi
-    
-    # Clean up temp key file
-    if [[ -n "$temp_key_file" ]] && [[ -f "$temp_key_file" ]]; then
-        rm -f "$temp_key_file"
     fi
 }
 

@@ -20,50 +20,23 @@ fi
 
 # Check for or create local age keypair
 LOCAL_AGE_KEY_FILE="${SCRIPT_DIR}/.age-key-local"
-if [[ ! -f "$LOCAL_AGE_KEY_FILE" ]]; then
-    echo -e "${BLUE}🔑 Generating local age keypair...${NC}"
-    age-keygen -o "$LOCAL_AGE_KEY_FILE"
-    echo -e "${GREEN}✓ Local age keypair created at ${LOCAL_AGE_KEY_FILE}${NC}"
-    echo -e "${YELLOW}⚠ Keep this file secure and never commit it to git${NC}"
-else
-    echo -e "${GREEN}✓ Using existing local age keypair${NC}"
-fi
+ensure_age_keypair "$LOCAL_AGE_KEY_FILE" "local age keypair" || exit 1
 
 # Extract public key from local key file
-# The public key is in a comment line like: # public key: age1...
-LOCAL_PUBLIC_KEY=$(grep "^# public key:" "$LOCAL_AGE_KEY_FILE" | cut -d' ' -f4)
+LOCAL_PUBLIC_KEY=$(extract_age_public_key "$LOCAL_AGE_KEY_FILE")
 if [[ -z "$LOCAL_PUBLIC_KEY" ]]; then
     echo -e "${RED}Error: Could not extract public key from ${LOCAL_AGE_KEY_FILE}${NC}" >&2
     exit 1
 fi
 
 # Set SOPS_AGE_KEY for local operations
-export SOPS_AGE_KEY=$(cat "$LOCAL_AGE_KEY_FILE")
+ensure_sops_age_key "$LOCAL_AGE_KEY_FILE" || exit 1
 
-# Update .sops.yaml with local public key (add if not present)
-if [[ -f "${SCRIPT_DIR}/.sops.yaml" ]]; then
-    # Check if local public key is already in .sops.yaml
-    if ! grep -q "$LOCAL_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
-        echo -e "${BLUE}📝 Updating .sops.yaml with local public key...${NC}"
-        bash "${SCRIPT_DIR}/scripts/secrets.sh" add-recipient "$LOCAL_PUBLIC_KEY"
-    fi
-else
-    echo -e "${YELLOW}⚠ .sops.yaml not found, creating it...${NC}"
-    cat > "${SCRIPT_DIR}/.sops.yaml" <<EOF
-# SOPS configuration for encrypting secrets
-# This file supports multiple recipients (local, server, GitHub Actions)
-# Each recipient can decrypt the secrets using their private key
-
-creation_rules:
-  - path_regex: secrets\.encrypted\.yaml$
-    age: >-
-      ${LOCAL_PUBLIC_KEY}
-    # Multiple age public keys (comma-separated):
-    # 1. Local machine public key (for editing secrets locally)
-    # 2. Server public key (for decrypting during setup.sh)
-    # 3. GitHub Actions public key (for CI/CD)
-    # Keys will be automatically added/updated by deploy.sh and setup.sh
-EOF
+# Ensure .sops.yaml exists and add local public key if not present
+ensure_sops_config "$LOCAL_PUBLIC_KEY"
+if ! grep -q "$LOCAL_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
+    echo -e "${BLUE}📝 Updating .sops.yaml with local public key...${NC}"
+    add_sops_recipient "$LOCAL_PUBLIC_KEY"
 fi
 
 # Load secrets from encrypted file
@@ -152,14 +125,15 @@ fi
 # Add server public key to .sops.yaml if not present
 if ! grep -q "$SERVER_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
     echo "[DEPLOY] Adding server public key to .sops.yaml..."
-    bash "${SCRIPT_DIR}/scripts/secrets.sh" add-recipient "$SERVER_PUBLIC_KEY"
+    add_sops_recipient "$SERVER_PUBLIC_KEY"
     
     # Re-encrypt secrets with server key included
     if [[ -f "${SCRIPT_DIR}/secrets.encrypted.yaml" ]]; then
         echo "[DEPLOY] Re-encrypting secrets with server key..."
         TEMP_SECRETS=$(mktemp)
-        if sops -d "${SCRIPT_DIR}/secrets.encrypted.yaml" > "$TEMP_SECRETS" 2>/dev/null; then
-            sops -e "$TEMP_SECRETS" > "${SCRIPT_DIR}/secrets.encrypted.yaml"
+        ensure_sops_age_key || exit 1
+        if sops_cmd -d "${SCRIPT_DIR}/secrets.encrypted.yaml" > "$TEMP_SECRETS" 2>/dev/null; then
+            sops_cmd -e "$TEMP_SECRETS" > "${SCRIPT_DIR}/secrets.encrypted.yaml"
             rm -f "$TEMP_SECRETS"
             echo "[DEPLOY] ✓ Secrets re-encrypted with server key"
         else
