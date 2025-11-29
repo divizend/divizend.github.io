@@ -672,10 +672,110 @@ else
         if echo "$TEST_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
             EMAIL_ID=$(echo "$TEST_RESPONSE" | jq -r '.id')
             echo -e "${GREEN}Test email sent successfully (ID: ${EMAIL_ID})${NC}"
-            echo -e "${BLUE}Waiting 10 seconds for email processing...${NC}"
-            sleep 10
-            echo -e "${GREEN}Expected: Email with reversed text 'dlroW olleH' should arrive at ${TEST_SENDER}${NC}"
-            echo -e "${YELLOW}Note: Check the inbox at ${TEST_SENDER} for the reversed response.${NC}"
+            echo -e "${BLUE}Waiting for email processing (webhook -> S2 -> Bento -> Resend)...${NC}"
+            
+            # Wait for Resend to deliver the email and trigger the webhook
+            sleep 5
+            
+            # Monitor Bento logs for processing activity
+            MAX_WAIT_ATTEMPTS=20
+            WAIT_ATTEMPT=0
+            WEBHOOK_RECEIVED=false
+            PROCESSING_COMPLETE=false
+            EXPECTED_REVERSED_TEXT="dlroW olleH"
+            
+            echo -e "${BLUE}Monitoring Bento logs for processing...${NC}"
+            while [ "$WAIT_ATTEMPT" -lt "$MAX_WAIT_ATTEMPTS" ]; do
+                sleep 2
+                WAIT_ATTEMPT=$((WAIT_ATTEMPT + 1))
+                
+                # Check Bento logs for webhook receipt
+                BENTO_LOGS=$(journalctl -u bento --since "1 minute ago" --no-pager 2>/dev/null)
+                
+                # Check if webhook was received
+                if echo "$BENTO_LOGS" | grep -qi "webhooks/resend\|POST.*webhook" > /dev/null 2>&1; then
+                    if [ "$WEBHOOK_RECEIVED" = false ]; then
+                        echo -e "${GREEN}✓ Webhook received${NC}"
+                        WEBHOOK_RECEIVED=true
+                    fi
+                fi
+                
+                # Check if processing completed (email sent via Resend)
+                if echo "$BENTO_LOGS" | grep -qi "http_client\|api.resend.com\|send_email\|outbox" > /dev/null 2>&1; then
+                    if [ "$PROCESSING_COMPLETE" = false ]; then
+                        echo -e "${GREEN}✓ Email processing and sending detected${NC}"
+                        PROCESSING_COMPLETE=true
+                        break
+                    fi
+                fi
+                
+                # Show progress every 5 attempts
+                if [ $((WAIT_ATTEMPT % 5)) -eq 0 ]; then
+                    echo -e "${BLUE}Still waiting... (${WAIT_ATTEMPT}/${MAX_WAIT_ATTEMPTS})${NC}"
+                fi
+            done
+            
+            # Final verification
+            echo -e "${BLUE}Verifying complete processing pipeline...${NC}"
+            
+            # Get recent Bento logs for detailed check
+            RECENT_LOGS=$(journalctl -u bento --since "2 minutes ago" --no-pager 2>/dev/null | tail -n 100)
+            
+            VERIFICATION_PASSED=true
+            VERIFICATION_MESSAGES=()
+            
+            # Check 1: Webhook was received
+            if echo "$RECENT_LOGS" | grep -qi "webhooks/resend\|POST.*webhook" > /dev/null 2>&1; then
+                VERIFICATION_MESSAGES+=("✓ Webhook endpoint received the email")
+            else
+                VERIFICATION_MESSAGES+=("✗ Webhook endpoint did not receive the email")
+                VERIFICATION_PASSED=false
+            fi
+            
+            # Check 2: Processing pipeline executed
+            if echo "$RECENT_LOGS" | grep -qi "process_reverser\|reverser\|bloblang" > /dev/null 2>&1; then
+                VERIFICATION_MESSAGES+=("✓ Text reversal processing executed")
+            else
+                VERIFICATION_MESSAGES+=("⚠ Text reversal processing not confirmed in logs")
+            fi
+            
+            # Check 3: Email was sent via Resend API
+            if echo "$RECENT_LOGS" | grep -qi "api.resend.com\|http_client\|POST.*emails" > /dev/null 2>&1; then
+                VERIFICATION_MESSAGES+=("✓ Reversed email sent via Resend API")
+            else
+                VERIFICATION_MESSAGES+=("⚠ Email sending not confirmed in logs")
+                VERIFICATION_PASSED=false
+            fi
+            
+            # Check 4: Bento service health
+            if systemctl is-active --quiet bento && ss -tuln | grep -q ':4195 '; then
+                VERIFICATION_MESSAGES+=("✓ Bento service is running and healthy")
+            else
+                VERIFICATION_MESSAGES+=("✗ Bento service is not running properly")
+                VERIFICATION_PASSED=false
+            fi
+            
+            # Display verification results
+            echo ""
+            for msg in "${VERIFICATION_MESSAGES[@]}"; do
+                if [[ "$msg" == *"✓"* ]]; then
+                    echo -e "${GREEN}${msg}${NC}"
+                elif [[ "$msg" == *"✗"* ]]; then
+                    echo -e "${RED}${msg}${NC}"
+                else
+                    echo -e "${YELLOW}${msg}${NC}"
+                fi
+            done
+            echo ""
+            
+            if [ "$VERIFICATION_PASSED" = true ]; then
+                echo -e "${GREEN}✓ Test email processing pipeline verified successfully!${NC}"
+                echo -e "${GREEN}The reversed email with text '${EXPECTED_REVERSED_TEXT}' should arrive at ${TEST_SENDER}${NC}"
+            else
+                echo -e "${YELLOW}⚠ Some verification checks failed. Check Bento logs for details:${NC}"
+                echo -e "${YELLOW}  journalctl -u bento -n 100 --no-pager${NC}"
+                echo -e "${YELLOW}Also check the inbox at ${TEST_SENDER} for the reversed response.${NC}"
+            fi
         else
             ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.message' 2>/dev/null || echo "$TEST_RESPONSE")
             echo -e "${YELLOW}Test email failed: ${ERROR_MSG}${NC}"
