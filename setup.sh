@@ -725,11 +725,15 @@ else
             VERIFICATION_MESSAGES=()
             
             # Check 1: Bento service health (do this first as it's most reliable)
-            if systemctl is-active --quiet bento 2>/dev/null; then
-                if ss -tuln 2>/dev/null | grep -q ':4195 '; then
+            BENTO_ACTIVE=false
+            BENTO_PORT_OPEN=false
+            if systemctl is-active --quiet bento 2>/dev/null || systemctl status bento --no-pager 2>/dev/null | grep -q "active (running)"; then
+                BENTO_ACTIVE=true
+                if ss -tuln 2>/dev/null | grep -q ':4195 ' || netstat -tuln 2>/dev/null | grep -q ':4195 '; then
+                    BENTO_PORT_OPEN=true
                     VERIFICATION_MESSAGES+=("✓ Bento service is running and listening on port 4195")
                 else
-                    VERIFICATION_MESSAGES+=("⚠ Bento service is running but port 4195 not detected")
+                    VERIFICATION_MESSAGES+=("⚠ Bento service is running but port 4195 not detected (may be starting)")
                 fi
             else
                 VERIFICATION_MESSAGES+=("✗ Bento service is not running")
