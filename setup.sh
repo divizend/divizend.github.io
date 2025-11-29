@@ -264,9 +264,48 @@ input:
 
 pipeline:
   processors:
-    # In a strict production environment, you would verify the svix-signature here.
-    # Passing raw payload to stream for durability.
-    - mapping: root = this
+    # Verify Svix signature for webhook authenticity
+    - bloblang: |
+        # Extract Svix headers
+        let svix_id = this.headers["svix-id"] | this.headers["Svix-Id"] | ""
+        let svix_timestamp = this.headers["svix-timestamp"] | this.headers["Svix-Timestamp"] | ""
+        let svix_signature = this.headers["svix-signature"] | this.headers["Svix-Signature"] | ""
+        
+        # Get raw body (as JSON string for signature verification)
+        let raw_body = this.content()
+        
+        # Construct signed payload: svix_id + "." + svix_timestamp + "." + body
+        let signed_payload = \$svix_id + "." + \$svix_timestamp + "." + \$raw_body
+        
+        # Compute HMAC-SHA256 signature
+        let webhook_secret = "${RESEND_WEBHOOK_SECRET}"
+        let computed_signature = \$signed_payload.hmac_sha256(\$webhook_secret)
+        
+        # Verify signature matches (Svix uses format "v1,<signature>")
+        let signature_valid = \$svix_signature.contains(\$computed_signature)
+        
+        # Check timestamp to prevent replay attacks (within 5 minutes)
+        let current_timestamp = now().unix()
+        let request_timestamp = \$svix_timestamp.number()
+        let timestamp_valid = (\$current_timestamp - \$request_timestamp).abs() < 300
+        
+        # Reject if signature or timestamp invalid
+        if !\$signature_valid || !\$timestamp_valid {
+          root = deleted()
+          root.error = "Invalid webhook signature or timestamp"
+          root.status_code = 401
+        } else {
+          # Signature valid, pass through the payload
+          root = this
+        }
+    
+    # Only process if signature was valid (not deleted)
+    - filter:
+        bloblang: 'this != deleted()'
+    
+    # Parse the validated JSON payload
+    - mapping: |
+        root = this.parse_json("content")
 
 output:
   resource: s2_inbox_writer
