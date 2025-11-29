@@ -468,9 +468,6 @@ input:
     auth_token: "${S2_ACCESS_TOKEN}"
     cache: s2_outbox_cache
 
-# No pipeline needed - transform_email already outputs correct format
-# Data from S2 is already parsed JSON with: from, to (array), subject, html
-
 output:
   http_client:
     url: https://api.resend.com/emails
