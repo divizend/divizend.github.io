@@ -473,14 +473,33 @@ pipeline:
     # Ensure payload is in the correct format for Resend API
     # Data from S2 should already be parsed JSON (Bento's s2 input parses JSON automatically)
     - bloblang: |
-        # Ensure all required fields are present for Resend API
-        # Resend expects: from, to (array), subject, html (or text)
+        # Debug: log the incoming structure
         # The data from S2 should already be a parsed JSON object
+        # Ensure all required fields are present for Resend API
+        # Resend expects: from (string), to (array of strings), subject (string), html (string)
+        
+        # Check if 'to' exists and is an array, otherwise create it
+        let to_array = if this.to.type() == "array" {
+          this.to
+        } else if this.to.type() == "string" {
+          [this.to]
+        } else {
+          []
+        }
+        
+        # Build the payload ensuring all fields are present
         root = {
           "from": this.from | "",
-          "to": this.to | [],
+          "to": $to_array,
           "subject": this.subject | "",
           "html": this.html | ""
+        }
+        
+        # Ensure 'to' array is not empty (Resend requirement)
+        root = if root.to.length() == 0 {
+          root.throw("'to' field is required and cannot be empty")
+        } else {
+          root
         }
 
 output:
