@@ -228,12 +228,26 @@ async function editSecrets(): Promise<void> {
 
      // Verify editor exists before trying to use it
      const editorParts = editor.split(/\s+/);
-     const editorCmd = editorParts[0];
+     let editorCmd = editorParts[0];
+     
+     // If editorCmd is not an absolute path, resolve it
+     if (!editorCmd.startsWith("/")) {
+       try {
+         const resolved = execSync(`which ${editorCmd}`, { encoding: "utf-8" }).trim();
+         if (resolved && existsSync(resolved)) {
+           editorCmd = resolved;
+         }
+       } catch {
+         // which failed, try to find it in common paths
+       }
+     }
+     
      if (!existsSync(editorCmd)) {
        throw new Error(`Editor "${editorCmd}" not found.`);
      }
 
      console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
+     console.log(`${YELLOW}Debug: Using editor: ${editorCmd}, args: ${JSON.stringify([...editorParts.slice(1), tempFile])}${NC}`);
 
      await new Promise<void>((resolve, reject) => {
        // Use execFile for better control and to avoid shell interpretation
