@@ -35,6 +35,7 @@ get_config_value() {
     eval "$var_name=\"$var_value\""
 }
 
+
 echo -e "${BLUE}Starting Stream Processor Setup...${NC}"
 
 # 1. Pre-flight Checks
@@ -632,8 +633,7 @@ if [ "$DOMAINS_COUNT" = "0" ] || [ -z "$DOMAINS_COUNT" ] || [ "$DOMAINS_COUNT" =
 elif [ "$DOMAINS_COUNT" = "1" ]; then
     TEST_DOMAIN=$(echo "$DOMAINS_JSON" | jq -r '.data[0].name' 2>/dev/null)
     if [ -n "$TEST_DOMAIN" ] && [ "$TEST_DOMAIN" != "null" ]; then
-        # Try agent1@notifications.TEST_DOMAIN first, then agent1@TEST_DOMAIN
-        TEST_SENDER="agent1@notifications.${TEST_DOMAIN}"
+        TEST_SENDER="agent1@${TEST_DOMAIN}"
         TEST_RECEIVER="reverser@${BASE_DOMAIN}"
         TEST_SUBJECT="Test: Hello World"
         TEST_TEXT="Hello World"
@@ -655,37 +655,12 @@ elif [ "$DOMAINS_COUNT" = "1" ]; then
             echo -e "${GREEN}Test email sent successfully (ID: ${EMAIL_ID})${NC}"
             echo -e "${BLUE}Waiting 10 seconds for email processing...${NC}"
             sleep 10
-            
-            # Check if reversed email was sent back
-            echo -e "${BLUE}Checking for reversed response email...${NC}"
-            # The reversed text should be "dlroW olleH"
             echo -e "${GREEN}Expected: Email with reversed text 'dlroW olleH' should arrive at ${TEST_SENDER}${NC}"
             echo -e "${YELLOW}Note: Check the inbox at ${TEST_SENDER} for the reversed response.${NC}"
         else
-            # Try without notifications subdomain
-            TEST_SENDER="agent1@${TEST_DOMAIN}"
-            echo -e "${YELLOW}Retrying with ${TEST_SENDER}...${NC}"
-            TEST_RESPONSE=$(curl -s --max-time 10 -X POST https://api.resend.com/emails \
-                -H "Authorization: Bearer ${RESEND_API_KEY}" \
-                -H "Content-Type: application/json" \
-                -d "{
-                    \"from\": \"${TEST_SENDER}\",
-                    \"to\": [\"${TEST_RECEIVER}\"],
-                    \"subject\": \"${TEST_SUBJECT}\",
-                    \"text\": \"${TEST_TEXT}\"
-                }" 2>/dev/null)
-            
-            if echo "$TEST_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
-                EMAIL_ID=$(echo "$TEST_RESPONSE" | jq -r '.id')
-                echo -e "${GREEN}Test email sent successfully (ID: ${EMAIL_ID})${NC}"
-                echo -e "${BLUE}Waiting 10 seconds for email processing...${NC}"
-                sleep 10
-                echo -e "${GREEN}Expected: Email with reversed text 'dlroW olleH' should arrive at ${TEST_SENDER}${NC}"
-            else
-                ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.message' 2>/dev/null || echo "$TEST_RESPONSE")
-                echo -e "${YELLOW}Test email failed: ${ERROR_MSG}${NC}"
-                echo -e "\nSend a test email manually to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
-            fi
+            ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.message' 2>/dev/null || echo "$TEST_RESPONSE")
+            echo -e "${YELLOW}Test email failed: ${ERROR_MSG}${NC}"
+            echo -e "\nSend a test email manually to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
         fi
     else
         echo -e "${YELLOW}Could not extract domain name, skipping test email.${NC}"
@@ -742,8 +717,7 @@ else
     
     # Send test email if domain was selected
     if [ -n "$TEST_DOMAIN" ]; then
-        # Try agent1@notifications.TEST_DOMAIN first, then agent1@TEST_DOMAIN
-        TEST_SENDER="agent1@notifications.${TEST_DOMAIN}"
+        TEST_SENDER="agent1@${TEST_DOMAIN}"
         TEST_RECEIVER="reverser@${BASE_DOMAIN}"
         TEST_SUBJECT="Test: Hello World"
         TEST_TEXT="Hello World"
@@ -768,30 +742,9 @@ else
             echo -e "${GREEN}Expected: Email with reversed text 'dlroW olleH' should arrive at ${TEST_SENDER}${NC}"
             echo -e "${YELLOW}Note: Check the inbox at ${TEST_SENDER} for the reversed response.${NC}"
         else
-            # Try without notifications subdomain
-            TEST_SENDER="agent1@${TEST_DOMAIN}"
-            echo -e "${YELLOW}Retrying with ${TEST_SENDER}...${NC}"
-            TEST_RESPONSE=$(curl -s --max-time 10 -X POST https://api.resend.com/emails \
-                -H "Authorization: Bearer ${RESEND_API_KEY}" \
-                -H "Content-Type: application/json" \
-                -d "{
-                    \"from\": \"${TEST_SENDER}\",
-                    \"to\": [\"${TEST_RECEIVER}\"],
-                    \"subject\": \"${TEST_SUBJECT}\",
-                    \"text\": \"${TEST_TEXT}\"
-                }" 2>/dev/null)
-            
-            if echo "$TEST_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
-                EMAIL_ID=$(echo "$TEST_RESPONSE" | jq -r '.id')
-                echo -e "${GREEN}Test email sent successfully (ID: ${EMAIL_ID})${NC}"
-                echo -e "${BLUE}Waiting 10 seconds for email processing...${NC}"
-                sleep 10
-                echo -e "${GREEN}Expected: Email with reversed text 'dlroW olleH' should arrive at ${TEST_SENDER}${NC}"
-            else
-                ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.message' 2>/dev/null || echo "$TEST_RESPONSE")
-                echo -e "${YELLOW}Test email failed: ${ERROR_MSG}${NC}"
-                echo -e "\nSend a test email manually to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
-            fi
+            ERROR_MSG=$(echo "$TEST_RESPONSE" | jq -r '.message' 2>/dev/null || echo "$TEST_RESPONSE")
+            echo -e "${YELLOW}Test email failed: ${ERROR_MSG}${NC}"
+            echo -e "\nSend a test email manually to ${YELLOW}reverser@${BASE_DOMAIN}${NC} to verify."
         fi
     fi
 fi
