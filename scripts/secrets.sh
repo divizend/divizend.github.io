@@ -49,8 +49,9 @@ case "$command" in
                 echo "Error: .sops.yaml not found. Please run deploy.sh first to set up encryption." >&2
                 exit 1
             fi
-            # Create empty YAML file and encrypt it
-            echo "{}" | sops_cmd -e "$SECRETS_FILE" /dev/stdin > /dev/null 2>&1 || {
+            # Create empty YAML file and encrypt it using SOPS
+            # Use sops -e to encrypt an empty YAML structure
+            echo "{}" | sops_cmd -e /dev/stdin > "$SECRETS_FILE" 2>&1 || {
                 echo "Error: Failed to create secrets.encrypted.yaml" >&2
                 exit 1
             }

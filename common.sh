@@ -122,17 +122,30 @@ update_sops_secret() {
     
     # Create secrets.encrypted.yaml if it doesn't exist
     if [[ ! -f "$secrets_file" ]]; then
-        # Create empty YAML file and encrypt it
-        if ! echo "{}" | sops -e "$sops_config" /dev/stdin > "$secrets_file" 2>/dev/null; then
-            # If that fails, try with SOPS_AGE_KEY set
-            if [[ -n "$SOPS_AGE_KEY" ]] || [[ -n "$SOPS_AGE_KEY_FILE" ]]; then
-                echo "{}" | sops -e "$sops_config" /dev/stdin > "$secrets_file" 2>/dev/null || {
-                    echo -e "${YELLOW}⚠ Failed to create secrets.encrypted.yaml${NC}" >&2
-                    return 0
-                }
-            else
-                return 0  # Silently skip if we can't create the file
+        # Set up age key file if SOPS_AGE_KEY is provided
+        local temp_key_file=""
+        if [[ -n "$SOPS_AGE_KEY" ]] && [[ -z "$SOPS_AGE_KEY_FILE" ]]; then
+            temp_key_file=$(mktemp)
+            echo "$SOPS_AGE_KEY" > "$temp_key_file"
+            export SOPS_AGE_KEY_FILE="$temp_key_file"
+        fi
+        
+        # Create empty YAML file and encrypt it using SOPS
+        # Use sops -e to encrypt an empty YAML structure
+        if echo "{}" | sops -e /dev/stdin > "$secrets_file" 2>/dev/null; then
+            echo -e "${GREEN}✓ Created secrets.encrypted.yaml${NC}"
+        else
+            # Clean up temp key file
+            if [[ -n "$temp_key_file" ]] && [[ -f "$temp_key_file" ]]; then
+                rm -f "$temp_key_file"
             fi
+            echo -e "${YELLOW}⚠ Failed to create secrets.encrypted.yaml${NC}" >&2
+            return 0
+        fi
+        
+        # Clean up temp key file
+        if [[ -n "$temp_key_file" ]] && [[ -f "$temp_key_file" ]]; then
+            rm -f "$temp_key_file"
         fi
     fi
     
