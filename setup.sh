@@ -937,6 +937,27 @@ test_tool() {
     fi
 }
 
+# Clear inbox streams before testing to avoid processing old messages
+# This prevents duplicate replies from old messages
+echo -e "\n${BLUE}Clearing old messages from inbox streams...${NC}"
+export PATH="$HOME/.s2/bin:$HOME/.cargo/bin:$PATH"
+S2_CMD=$(command -v s2 2>/dev/null || echo "$HOME/.s2/bin/s2")
+"$S2_CMD" config set --access-token "${S2_ACCESS_TOKEN}" >/dev/null 2>&1
+
+# List all inbox streams and clear them
+set +e
+INBOX_STREAMS=$("$S2_CMD" list-streams "s2://${S2_BASIN}" 2>/dev/null | grep "inbox/" || true)
+if [ -n "$INBOX_STREAMS" ]; then
+    echo "$INBOX_STREAMS" | while read -r stream; do
+        STREAM_NAME=$(echo "$stream" | sed 's|s2://[^/]*/||')
+        echo -e "${BLUE}Clearing ${STREAM_NAME}...${NC}"
+        "$S2_CMD" delete-stream "s2://${S2_BASIN}/${STREAM_NAME}" >/dev/null 2>&1
+        sleep 1
+        "$S2_CMD" create-stream "s2://${S2_BASIN}/${STREAM_NAME}" >/dev/null 2>&1
+    done
+fi
+set -e
+
 # Test: Send test email if domains are detected
 echo -e "\n${BLUE}Checking Resend domains for test email...${NC}"
 set +e  # Temporarily disable exit on error for API calls
