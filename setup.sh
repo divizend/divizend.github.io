@@ -246,10 +246,8 @@ fi
 echo -e "${BLUE}Generating Bento Pipeline Configuration...${NC}"
 mkdir -p /etc/bento/streams
 
-# Root configuration file (minimal valid YAML object)
-cat <<EOF > /etc/bento/config.yaml
-{}
-EOF
+# Remove any existing config.yaml that might interfere
+rm -f /etc/bento/config.yaml
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
 cat <<EOF > /etc/bento/streams/ingest_email.yaml
@@ -369,7 +367,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/bento streams /etc/bento/streams
+ExecStart=/usr/bin/bento streams --chilled /etc/bento/streams
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
@@ -532,10 +530,61 @@ if [ "$BENTO_FAILED" = true ]; then
         HEALTH_FAILED=false
     else
         echo -e "${RED}Bento service still not running after fix attempt${NC}"
-        echo -e "${YELLOW}Showing Bento service status:${NC}"
-        systemctl status bento --no-pager -l | head -n 30 | sed 's/^/  /'
-        echo -e "${YELLOW}Showing recent Bento logs:${NC}"
-        journalctl -u bento -n 30 --no-pager | sed 's/^/  /'
+        # Try one more time with --chilled flag if not already using it
+        if ! grep -q "streams --chilled" /etc/systemd/system/bento.service; then
+            echo -e "${YELLOW}Updating service to use --chilled flag...${NC}"
+            sed -i 's|ExecStart=/usr/bin/bento streams|ExecStart=/usr/bin/bento streams --chilled|' /etc/systemd/system/bento.service
+            systemctl daemon-reload
+            systemctl restart bento
+            sleep 5
+        fi
+        
+        # Final check
+        if systemctl is-active --quiet bento && ss -tuln | grep -q ':4195 '; then
+            echo -e "${GREEN}Bento service is now running!${NC}"
+            BENTO_FIXED=true
+            BENTO_FAILED=false
+            HEALTH_FAILED=false
+        else
+            echo -e "${YELLOW}Showing Bento service status:${NC}"
+            systemctl status bento --no-pager -l | head -n 30 | sed 's/^/  /'
+            echo -e "${YELLOW}Showing recent Bento logs:${NC}"
+            journalctl -u bento -n 30 --no-pager | sed 's/^/  /'
+        fi
+    fi
+fi
+
+# Final check: Ensure Bento is running before declaring success
+if [ "$BENTO_FAILED" = true ] || ! systemctl is-active --quiet bento || ! ss -tuln | grep -q ':4195 '; then
+    echo -e "\n${YELLOW}Final attempt to start Bento...${NC}"
+    systemctl reset-failed bento 2>/dev/null || true
+    systemctl stop bento 2>/dev/null || true
+    sleep 2
+    
+    # Ensure --chilled flag is in service file
+    if ! grep -q "streams --chilled" /etc/systemd/system/bento.service; then
+        sed -i 's|ExecStart=/usr/bin/bento streams|ExecStart=/usr/bin/bento streams --chilled|' /etc/systemd/system/bento.service
+        systemctl daemon-reload
+    fi
+    
+    systemctl start bento
+    sleep 5
+    
+    # Wait up to 10 seconds for Bento to start
+    for i in {1..10}; do
+        if systemctl is-active --quiet bento && ss -tuln | grep -q ':4195 '; then
+            echo -e "${GREEN}Bento is now running and listening on port 4195!${NC}"
+            BENTO_FAILED=false
+            HEALTH_FAILED=false
+            break
+        fi
+        sleep 1
+    done
+    
+    if ! systemctl is-active --quiet bento || ! ss -tuln | grep -q ':4195 '; then
+        echo -e "${RED}Failed to start Bento after all attempts${NC}"
+        HEALTH_FAILED=true
+        BENTO_FAILED=true
     fi
 fi
 
