@@ -302,11 +302,11 @@ EOF
 
 # Stream 1: Ingest - Webhook -> S2 Inbox
 cat <<EOF > /etc/bento/streams/ingest_email.yaml
-    input:
-      http_server:
+input:
+  http_server:
     path: /webhooks/resend
-        allowed_verbs: [POST]
-        timeout: 5s
+    allowed_verbs: [POST]
+    timeout: 5s
 
 pipeline:
   processors:
