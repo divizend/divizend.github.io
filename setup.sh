@@ -477,17 +477,22 @@ if [ "$BASIN_EXISTS" = false ]; then
         fi
     done
     
-    # Final check - if basin still doesn't exist, fail
+    # Final check - if basin still doesn't exist, check if it exists anyway (might be a list permission issue)
     if [ "$CREATE_SUCCESS" = false ]; then
-        # One final check
+        # One final check - try to list basins to see if it exists
         sleep 2
         if "$S2_CMD" list-basins 2>/dev/null | grep -q "^${S2_BASIN}"; then
-            echo -e "${GREEN}S2 basin '${S2_BASIN}' is now available.${NC}"
+            echo -e "${GREEN}S2 basin '${S2_BASIN}' exists (verified via list-basins).${NC}"
         else
-            echo -e "${RED}Error: S2 basin '${S2_BASIN}' could not be created.${NC}" >&2
-            echo -e "${RED}This indicates an authentication or permission issue with the S2 access token.${NC}" >&2
-            echo -e "${RED}Please verify your S2_ACCESS_TOKEN has permission to create basins.${NC}" >&2
-            exit 1
+            # Try to verify by attempting to use the basin (list streams)
+            if "$S2_CMD" list-streams "s2://${S2_BASIN}/test" 2>/dev/null >/dev/null; then
+                echo -e "${GREEN}S2 basin '${S2_BASIN}' exists (verified via stream access).${NC}"
+            else
+                echo -e "${RED}Error: S2 basin '${S2_BASIN}' could not be created or verified.${NC}" >&2
+                echo -e "${RED}This indicates an authentication or permission issue with the S2 access token.${NC}" >&2
+                echo -e "${RED}Please verify your S2_ACCESS_TOKEN has permission to create and list basins.${NC}" >&2
+                exit 1
+            fi
         fi
     fi
     # Re-enable exit on error
