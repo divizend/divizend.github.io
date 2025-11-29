@@ -457,22 +457,9 @@ data "http" "bento_tools" {
   }
 }
 
-data "http" "bento_types" {
-  url = "\${var.tools_root}/index.ts"
-  
-  request_headers = {
-    Accept = "text/plain"
-  }
-}
-
 # Local file to store fetched tools
-resource "local_file" "bento_tools" {
-  content  = data.http.bento_tools.response_body
-  filename = "/tmp/bento-tools-index.ts"
-}
-
 resource "local_file" "bento_tools_index" {
-  content  = data.http.bento_types.response_body
+  content  = data.http.bento_tools.response_body
   filename = "/tmp/bento-tools-index.ts"
 }
 
@@ -480,7 +467,6 @@ resource "local_file" "bento_tools_index" {
 resource "null_resource" "bento_reload" {
   triggers = {
     tools_hash = md5(data.http.bento_tools.response_body)
-    index_hash = md5(data.http.bento_types.response_body)
   }
 
   provisioner "local-exec" {
