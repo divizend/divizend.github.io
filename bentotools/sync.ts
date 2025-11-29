@@ -116,9 +116,7 @@ async function fetchIndexTs(parsed: ParsedToolsRoot): Promise<string> {
 }
 
 // Compile TypeScript exports to get stream configurations and tests
-async function compileStreams(
-  indexTsCode: string
-): Promise<{
+async function compileStreams(indexTsCode: string): Promise<{
   streams: Record<string, BentoStreamConfig>;
   tests: TestCase[];
 }> {
@@ -206,9 +204,9 @@ function substituteVariables(config: any, vars: Record<string, string>): any {
 // Sync a single stream to Bento via HTTP API
 async function syncStream(
   name: string,
-  config: BentoStreamConfig,
-  apiUrl: string
+  config: BentoStreamConfig
 ): Promise<boolean> {
+  const apiUrl = process.env.BENTO_API_URL || "http://localhost:4195";
   console.log(`  → Syncing stream: ${name}`);
 
   // Try POST first (create), then PUT (update) if that fails
@@ -222,10 +220,18 @@ async function syncStream(
     });
 
     // If POST fails with 400 (bad request - stream exists), 409 (conflict), or 404, try PUT (update)
-    if (response.status === 400 || response.status === 409 || response.status === 404) {
+    if (
+      response.status === 400 ||
+      response.status === 409 ||
+      response.status === 404
+    ) {
       const bodyText = await response.text();
       // Only use PUT if the error indicates the stream already exists
-      if (response.status === 400 && !bodyText.includes("already exists") && !bodyText.includes("Stream already exists")) {
+      if (
+        response.status === 400 &&
+        !bodyText.includes("already exists") &&
+        !bodyText.includes("Stream already exists")
+      ) {
         // This is a real validation error, not "stream exists"
         console.error(`    ✗ Stream '${name}' validation error: ${bodyText}`);
         return false;
@@ -347,7 +353,9 @@ async function main() {
       process.exit(1);
     }
   } catch (error) {
-    console.error(`❌ Error: Bento API at ${BENTO_API_URL} is not accessible: ${error}`);
+    console.error(
+      `❌ Error: Bento API at ${BENTO_API_URL} is not accessible: ${error}`
+    );
     process.exit(1);
   }
 
@@ -355,7 +363,7 @@ async function main() {
   console.log(`📤 Syncing streams to Bento...`);
   let successCount = 0;
   for (const [name, config] of Object.entries(substitutedStreams)) {
-    if (await syncStream(name, config, BENTO_API_URL)) {
+    if (await syncStream(name, config)) {
       successCount++;
     }
   }
@@ -364,7 +372,7 @@ async function main() {
   console.log(
     `✅ Stream sync completed (${successCount}/${totalStreams} successful)`
   );
-  
+
   // Fail if not all streams synced successfully
   if (successCount !== totalStreams) {
     console.error(
@@ -386,21 +394,12 @@ async function main() {
       process.exit(1);
     } else {
       console.log(`\n🧪 Running ${tests.length} test(s)...`);
-      const testResults = await runTests(
-        tests,
-        BASE_DOMAIN,
-        S2_BASIN,
-        S2_ACCESS_TOKEN,
-        TEST_SENDER,
-        BENTO_API_URL
-      );
+      const testResults = await runTests(tests);
 
       const passedTests = testResults.filter((r) => r.passed).length;
       const failedTests = testResults.filter((r) => !r.passed);
 
-      console.log(
-        `\n✅ Test results: ${passedTests}/${tests.length} passed`
-      );
+      console.log(`\n✅ Test results: ${passedTests}/${tests.length} passed`);
 
       if (failedTests.length > 0) {
         console.error("\n❌ Some tests failed:");
@@ -415,26 +414,31 @@ async function main() {
 
 // Run a single test case
 async function runTest(
-  test: TestCase,
-  baseDomain: string,
-  s2Basin: string,
-  s2AccessToken: string,
-  testSender: string,
-  bentoApiUrl: string
+  test: TestCase
 ): Promise<{ test: TestCase; passed: boolean; error?: string }> {
-  const testReceiver = `${test.stream}@${baseDomain}`;
+  const BASE_DOMAIN = process.env.BASE_DOMAIN || "";
+  const S2_BASIN =
+    process.env.S2_BASIN ||
+    (BASE_DOMAIN ? BASE_DOMAIN.replace(/\./g, "-").toLowerCase() : "");
+  const S2_ACCESS_TOKEN = process.env.S2_ACCESS_TOKEN || "";
+  const TEST_SENDER = process.env.TEST_SENDER || "";
+  const BENTO_API_URL = process.env.BENTO_API_URL || "http://localhost:4195";
+
+  const testReceiver = `${test.stream}@${BASE_DOMAIN}`;
   const testSubject = `Test: ${test.stream} - ${test.input}`;
-  const senderName = testSender.split("@")[0];
+  const senderName = TEST_SENDER.split("@")[0];
   const capitalizedSenderName =
     senderName.charAt(0).toUpperCase() + senderName.slice(1);
 
-  console.log(`  → Testing ${test.stream}: "${test.input}" → "${test.expected}"`);
+  console.log(
+    `  → Testing ${test.stream}: "${test.input}" → "${test.expected}"`
+  );
 
   try {
     // Initialize S2 client
     const store = new StreamStore({
-      basin: s2Basin,
-      accessToken: s2AccessToken,
+      basin: S2_BASIN,
+      accessToken: S2_ACCESS_TOKEN,
     });
 
     // Clear inbox stream for this tool
@@ -455,7 +459,7 @@ async function runTest(
 
     // Construct Resend API payload
     const resendPayload = {
-      from: `${capitalizedSenderName} <${testSender}>`,
+      from: `${capitalizedSenderName} <${TEST_SENDER}>`,
       to: [testReceiver],
       subject: testSubject,
       html: test.input,
@@ -484,7 +488,7 @@ async function runTest(
 
     // For now, we'll just verify the message was processed by checking Bento is responsive
     try {
-      const response = await fetch(`${bentoApiUrl}/ready`, {
+      const response = await fetch(`${BENTO_API_URL}/ready`, {
         signal: AbortSignal.timeout(5000),
       });
       if (!response.ok) {
@@ -518,23 +522,11 @@ async function runTest(
 
 // Run all tests
 async function runTests(
-  tests: TestCase[],
-  baseDomain: string,
-  s2Basin: string,
-  s2AccessToken: string,
-  testSender: string,
-  bentoApiUrl: string
+  tests: TestCase[]
 ): Promise<Array<{ test: TestCase; passed: boolean; error?: string }>> {
   const results = [];
   for (const test of tests) {
-    const result = await runTest(
-      test,
-      baseDomain,
-      s2Basin,
-      s2AccessToken,
-      testSender,
-      bentoApiUrl
-    );
+    const result = await runTest(test);
     results.push(result);
   }
   return results;
