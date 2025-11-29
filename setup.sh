@@ -94,6 +94,7 @@ fi
 # 3. System Dependencies
 echo -e "\n${BLUE}Installing system dependencies...${NC}"
 apt-get update -qq
+apt-get dist-upgrade -qq
 apt-get install -y -qq curl jq debian-keyring debian-archive-keyring apt-transport-https
 
 # 4. Install Caddy (Web Server / HTTPS)
