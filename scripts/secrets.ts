@@ -5,6 +5,7 @@
  * Usage:
  *   bun scripts/secrets.ts get <key>          - Get a secret value
  *   bun scripts/secrets.ts set <key> <value>  - Set a secret value
+ *   bun scripts/secrets.ts delete <key>       - Delete a secret
  *   bun scripts/secrets.ts list               - List all secrets
  *   bun scripts/secrets.ts edit               - Edit all secrets in editor
  *   bun scripts/secrets.ts dump               - Dump all secrets (decrypted)
@@ -193,19 +194,19 @@ async function editSecrets(): Promise<void> {
     const tempFile = join(tmpdir(), `secrets-edit-${Date.now()}.txt`);
     writeFileSync(tempFile, envFormat, "utf-8");
 
-     // Open in editor
-     // Use EDITOR or VISUAL environment variables, or default to nano
-     console.log(`${BLUE}Environment check:${NC}`);
-     console.log(`  EDITOR: ${process.env.EDITOR || "(not set)"}`);
-     console.log(`  VISUAL: ${process.env.VISUAL || "(not set)"}`);
-     
-     let editor = process.env.EDITOR || process.env.VISUAL || "nano";
-     
-     if (editor === "nano" && !process.env.EDITOR && !process.env.VISUAL) {
-       console.log(`${BLUE}  Using default editor: nano${NC}`);
-     } else {
-       console.log(`${BLUE}  Using editor from environment: ${editor}${NC}`);
-     }
+    // Open in editor
+    // Use EDITOR or VISUAL environment variables, or default to nano
+    console.log(`${BLUE}Environment check:${NC}`);
+    console.log(`  EDITOR: ${process.env.EDITOR || "(not set)"}`);
+    console.log(`  VISUAL: ${process.env.VISUAL || "(not set)"}`);
+
+    let editor = process.env.EDITOR || process.env.VISUAL || "nano";
+
+    if (editor === "nano" && !process.env.EDITOR && !process.env.VISUAL) {
+      console.log(`${BLUE}  Using default editor: nano${NC}`);
+    } else {
+      console.log(`${BLUE}  Using editor from environment: ${editor}${NC}`);
+    }
 
     // Split editor command and arguments
     const editorParts = editor.split(/\s+/);
@@ -230,30 +231,30 @@ async function editSecrets(): Promise<void> {
       throw new Error(`Editor "${editorCmd}" not found.`);
     }
 
-     // CRITICAL: Never allow vi to be used
-     if (
-       editorCmd.includes("/vi") &&
-       !editorCmd.includes("nano") &&
-       !editorCmd.includes("pico")
-     ) {
-       console.log(
-         `${YELLOW}⚠ Warning: Editor "${editorCmd}" is vi, forcing nano instead${NC}`
-       );
-       // Try to find nano using which
-       try {
-         const nanoPath = execSync("which nano", { encoding: "utf-8" }).trim();
-         if (nanoPath && existsSync(nanoPath)) {
-           editorCmd = nanoPath;
-           console.log(`${GREEN}✓ Using ${editorCmd} instead${NC}`);
-         } else {
-           throw new Error("nano not found");
-         }
-       } catch {
-         throw new Error(
-           "Could not find nano editor. Please install nano or set $EDITOR to a non-vi editor."
-         );
-       }
-     }
+    // CRITICAL: Never allow vi to be used
+    if (
+      editorCmd.includes("/vi") &&
+      !editorCmd.includes("nano") &&
+      !editorCmd.includes("pico")
+    ) {
+      console.log(
+        `${YELLOW}⚠ Warning: Editor "${editorCmd}" is vi, forcing nano instead${NC}`
+      );
+      // Try to find nano using which
+      try {
+        const nanoPath = execSync("which nano", { encoding: "utf-8" }).trim();
+        if (nanoPath && existsSync(nanoPath)) {
+          editorCmd = nanoPath;
+          console.log(`${GREEN}✓ Using ${editorCmd} instead${NC}`);
+        } else {
+          throw new Error("nano not found");
+        }
+      } catch {
+        throw new Error(
+          "Could not find nano editor. Please install nano or set $EDITOR to a non-vi editor."
+        );
+      }
+    }
 
     console.log(`${BLUE}📝 Opening secrets in ${editorCmd}...${NC}`);
 
@@ -409,6 +410,16 @@ async function main() {
       await setSecret(args[0], args[1]);
       break;
 
+    case "delete":
+      if (args.length !== 1) {
+        console.error(
+          `${RED}Usage: bun scripts/secrets.ts delete <key>${NC}`
+        );
+        process.exit(1);
+      }
+      await deleteSecret(args[0]);
+      break;
+
     case "list":
       await listSecrets();
       break;
@@ -439,6 +450,9 @@ async function main() {
       );
       console.error(
         "  bun scripts/secrets.ts set <key> <value>  - Set a secret value"
+      );
+      console.error(
+        "  bun scripts/secrets.ts delete <key>      - Delete a secret"
       );
       console.error(
         "  bun scripts/secrets.ts list               - List all secrets"

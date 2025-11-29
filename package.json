@@ -6,6 +6,7 @@
   "scripts": {
     "secrets:get": "bun scripts/secrets.ts get",
     "secrets:set": "bun scripts/secrets.ts set",
+    "secrets:delete": "bun scripts/secrets.ts delete",
     "secrets:list": "bun scripts/secrets.ts list",
     "secrets:edit": "bun scripts/secrets.ts edit",
     "secrets:dump": "bun scripts/secrets.ts dump",
