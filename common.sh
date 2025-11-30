@@ -10,6 +10,86 @@ if [[ -z "${GREEN:-}" ]]; then
     NC='\033[0m' # No Color
 fi
 
+# Logging system
+# LOG_LEVEL can be: DEBUG, INFO, WARN, ERROR
+# Defaults to DEBUG if not set
+LOG_LEVEL="${LOG_LEVEL:-DEBUG}"
+
+# Function to get numeric log level
+# Usage: get_log_level_numeric LEVEL
+get_log_level_numeric() {
+    case "$1" in
+        DEBUG) echo 0 ;;
+        INFO)  echo 1 ;;
+        WARN)  echo 2 ;;
+        ERROR) echo 3 ;;
+        *)     echo 0 ;; # Default to DEBUG
+    esac
+}
+
+# Function to check if log level should be output
+# Usage: should_log LEVEL
+should_log() {
+    local level="$1"
+    local current_level_num=$(get_log_level_numeric "$LOG_LEVEL")
+    local requested_level_num=$(get_log_level_numeric "$level")
+    [[ $requested_level_num -ge $current_level_num ]]
+}
+
+# Unified logging function
+# Usage: log LEVEL MESSAGE [STDERR]
+# LEVEL: DEBUG, INFO, WARN, ERROR
+# MESSAGE: The message to log
+# STDERR: If set to "1", output to stderr instead of stdout
+log() {
+    local level="$1"
+    shift
+    local message="$*"
+    local output_fd=1
+    
+    # Check if we should output this level
+    if ! should_log "$level"; then
+        return 0
+    fi
+    
+    # Determine output stream and color
+    local color=""
+    local prefix=""
+    case "$level" in
+        DEBUG)
+            color="${BLUE}"
+            prefix="[DEBUG]"
+            ;;
+        INFO)
+            color="${GREEN}"
+            prefix="[INFO]"
+            ;;
+        WARN)
+            color="${YELLOW}"
+            prefix="[WARN]"
+            output_fd=2
+            ;;
+        ERROR)
+            color="${RED}"
+            prefix="[ERROR]"
+            output_fd=2
+            ;;
+        *)
+            color="${NC}"
+            prefix="[LOG]"
+            ;;
+    esac
+    
+    # Output the message
+    echo -e "${color}${prefix} ${message}${NC}" >&$output_fd
+}
+
+# Convenience functions for each log level
+log_debug() { log DEBUG "$@"; }
+log_info() { log INFO "$@"; }
+log_warn() { log WARN "$@"; }
+log_error() { log ERROR "$@"; }
+
 # Function to get script directory
 get_script_dir() {
     if [[ -n "${SCRIPT_DIR:-}" ]]; then
@@ -65,10 +145,10 @@ ensure_sops_age_key() {
     fi
     
     # Failed to find key - show what we checked
-    echo -e "${RED}Error: Could not load age key${NC}" >&2
-    echo -e "${YELLOW}Checked the following paths:${NC}" >&2
+    log_error "Could not load age key"
+    log_debug "Checked the following paths:"
     for path in "${checked_paths[@]}"; do
-        echo -e "  - ${path}" >&2
+        log_debug "  - ${path}"
     done
     return 1
 }
@@ -78,7 +158,7 @@ ensure_sops_age_key() {
 extract_age_public_key() {
     local age_key_file="$1"
     if [[ ! -f "$age_key_file" ]]; then
-        echo -e "${RED}Error: Age key file not found: ${age_key_file}${NC}" >&2
+        log_error "Age key file not found: ${age_key_file}"
         return 1
     fi
     # The public key is in a comment line like: # public key: age1...
@@ -93,20 +173,20 @@ ensure_age_keypair() {
     local key_name="${2:-age keypair}"
     
     if [[ -f "$age_key_file" ]]; then
-        echo -e "${GREEN}✓ Using existing ${key_name}${NC}"
+        log_debug "Using existing ${key_name}"
         return 0
     fi
     
-    echo -e "${BLUE}🔑 Generating ${key_name}...${NC}"
+    log_info "🔑 Generating ${key_name}..."
     if ! command -v age-keygen &> /dev/null; then
-        echo -e "${RED}Error: age-keygen is not installed${NC}" >&2
+        log_error "age-keygen is not installed"
         return 1
     fi
     
     age-keygen -o "$age_key_file"
-    echo -e "${GREEN}✓ ${key_name} created at ${age_key_file}${NC}"
+    log_info "✓ ${key_name} created at ${age_key_file}"
     if [[ "$key_name" == *"local"* ]]; then
-        echo -e "${YELLOW}⚠ Keep this file secure and never commit it to git${NC}"
+        log_warn "⚠ Keep this file secure and never commit it to git"
     fi
     return 0
 }
@@ -114,16 +194,23 @@ ensure_age_keypair() {
 # Function to ensure .sops.yaml exists with initial configuration
 # Usage: ensure_sops_config [PUBLIC_KEY]
 # If PUBLIC_KEY is provided, uses it as the initial recipient
+# If not provided and .sops.yaml doesn't exist, tries to get public key from .age-key-local
 ensure_sops_config() {
     local public_key="${1:-}"
     local script_dir=$(get_script_dir)
     local sops_config="${script_dir}/.sops.yaml"
+    local age_key_file="${script_dir}/.age-key-local"
     
     if [[ -f "$sops_config" ]]; then
         return 0
     fi
     
-    echo -e "${YELLOW}⚠ .sops.yaml not found, creating it...${NC}"
+    # If no public key provided, try to get it from age key file
+    if [[ -z "$public_key" ]] && [[ -f "$age_key_file" ]]; then
+        public_key=$(extract_age_public_key "$age_key_file")
+    fi
+    
+    log_debug "⚠ .sops.yaml not found, creating it..."
     if [[ -n "$public_key" ]]; then
         cat > "$sops_config" <<EOF
 # SOPS configuration for encrypting secrets
@@ -166,18 +253,18 @@ add_sops_recipient() {
     local sops_config="${script_dir}/.sops.yaml"
     
     if [[ -z "$public_key" ]]; then
-        echo -e "${RED}Error: Public key is required${NC}" >&2
+        log_error "Public key is required"
         return 1
     fi
     
     if [[ ! -f "$sops_config" ]]; then
-        echo -e "${RED}Error: .sops.yaml not found at ${sops_config}${NC}" >&2
+        log_error ".sops.yaml not found at ${sops_config}"
         return 1
     fi
     
     # Check if key is already present
     if grep -q "$public_key" "$sops_config" 2>/dev/null; then
-        echo -e "${GREEN}✓ Public key already in .sops.yaml${NC}"
+        log_debug "✓ Public key already in .sops.yaml"
         return 0
     fi
     
@@ -188,55 +275,145 @@ add_sops_recipient() {
         sed -i "s|age: >-|age: >-\\n      ${public_key},|" "$sops_config"
     fi
     
-    echo -e "${GREEN}✓ Added recipient to .sops.yaml${NC}"
+    log_debug "✓ Added recipient to .sops.yaml"
+    return 0
+}
+
+# Helper function to check if we should be quiet (called from secrets.sh)
+# Usage: is_secrets_quiet
+is_secrets_quiet() {
+    # Check if we're being called from secrets.sh by checking the call stack
+    local i=0
+    while [[ $i -lt 10 ]]; do
+        local source_file="${BASH_SOURCE[$i]:-}"
+        if [[ -n "$source_file" ]]; then
+            local basename_file=$(basename "$source_file" 2>/dev/null || echo "")
+            if [[ "$basename_file" == "secrets.sh" ]]; then
+                return 0  # Yes, be quiet
+            fi
+        fi
+        i=$((i + 1))
+    done
+    return 1  # No, be verbose
+}
+
+# Function to ensure all prerequisites for secrets operations exist
+# Usage: ensure_secrets_prerequisites [QUIET]
+# Creates: .age-key-local, .sops.yaml, and ensures secrets.encrypted.yaml can be created
+# This function should be called before any secrets operation
+# If QUIET is set or called from secrets.sh, suppresses debug messages
+ensure_secrets_prerequisites() {
+    local quiet="${1:-}"
+    local script_dir=$(get_script_dir)
+    local age_key_file="${script_dir}/.age-key-local"
+    local sops_config="${script_dir}/.sops.yaml"
+    
+    # Auto-detect quiet mode if not explicitly set
+    if [[ -z "$quiet" ]] && is_secrets_quiet; then
+        quiet="1"
+    fi
+    
+    # Step 1: Ensure age keypair exists
+    if [[ -n "$quiet" ]]; then
+        ensure_age_keypair "$age_key_file" "local age keypair" > /dev/null 2>&1 || return 1
+    else
+        ensure_age_keypair "$age_key_file" "local age keypair" || return 1
+    fi
+    
+    # Step 2: Extract public key
+    local public_key=$(extract_age_public_key "$age_key_file")
+    if [[ -z "$public_key" ]]; then
+        log_error "Could not extract public key from ${age_key_file}"
+        return 1
+    fi
+    
+    # Step 3: Ensure .sops.yaml exists with the public key
+    if [[ ! -f "$sops_config" ]]; then
+        if [[ -n "$quiet" ]]; then
+            ensure_sops_config "$public_key" > /dev/null 2>&1 || return 1
+        else
+            ensure_sops_config "$public_key" || return 1
+        fi
+    else
+        # Ensure the public key is in .sops.yaml
+        if ! grep -q "$public_key" "$sops_config" 2>/dev/null; then
+            if [[ -n "$quiet" ]]; then
+                add_sops_recipient "$public_key" > /dev/null 2>&1 || return 1
+            else
+                add_sops_recipient "$public_key" || return 1
+            fi
+        fi
+    fi
+    
+    # Step 4: Ensure age key is loaded for SOPS operations
+    if [[ -n "$quiet" ]]; then
+        ensure_sops_age_key "$age_key_file" > /dev/null 2>&1 || return 1
+    else
+        ensure_sops_age_key "$age_key_file" || return 1
+    fi
+    
     return 0
 }
 
 # Function to create secrets.encrypted.yaml if it doesn't exist
-# Usage: create_secrets_file_if_needed
+# Usage: create_secrets_file_if_needed [QUIET]
+# Automatically ensures prerequisites exist before creating the file
+# If QUIET is set or called from secrets.sh, suppresses debug messages
 create_secrets_file_if_needed() {
+    local quiet="${1:-}"
     local script_dir=$(get_script_dir)
     local secrets_file="${script_dir}/secrets.encrypted.yaml"
-    local sops_config="${script_dir}/.sops.yaml"
     
     if [[ -f "$secrets_file" ]]; then
         return 0
     fi
     
-    if [[ ! -f "$sops_config" ]]; then
-        echo -e "${RED}Error: .sops.yaml not found. Please run deploy.sh first to set up encryption.${NC}" >&2
-        return 1
+    # Auto-detect quiet mode if not explicitly set
+    if [[ -z "$quiet" ]] && is_secrets_quiet; then
+        quiet="1"
     fi
     
-    # Ensure age key is loaded
-    ensure_sops_age_key || {
-        echo -e "${RED}Error: Could not load age key for encryption${NC}" >&2
-        return 1
-    }
+    # Ensure all prerequisites exist first
+    if [[ -n "$quiet" ]]; then
+        ensure_secrets_prerequisites "$quiet" || {
+            log_error "Could not set up secrets prerequisites"
+            return 1
+        }
+    else
+        ensure_secrets_prerequisites || {
+            log_error "Could not set up secrets prerequisites"
+            return 1
+        }
+    fi
     
     # Create empty YAML file first, then encrypt it using SOPS
     # SOPS needs the file path to match against path_regex in .sops.yaml
-    # Create temp file with the correct name so SOPS can match the creation rule
     local temp_file="${secrets_file}.tmp"
     echo "{}" > "$temp_file"
     
     # Use sops_cmd to encrypt the file in place
     # SOPS will use the file path to match against path_regex in .sops.yaml
-    if sops_cmd -e -i "$temp_file" 2>&1; then
+    if sops_cmd -e -i "$temp_file" 2>&1 > /dev/null; then
         mv "$temp_file" "$secrets_file"
-        echo -e "${GREEN}✓ Created secrets.encrypted.yaml${NC}"
+        if [[ -z "$quiet" ]]; then
+            log_info "✓ Created secrets.encrypted.yaml"
+        fi
         return 0
     else
         rm -f "$temp_file"
         # Try alternative: create file with correct name in same directory
         echo "{}" > "$secrets_file"
-        if sops_cmd -e -i "$secrets_file" 2>&1; then
-            echo -e "${GREEN}✓ Created secrets.encrypted.yaml${NC}"
+        if sops_cmd -e -i "$secrets_file" 2>&1 > /dev/null; then
+            if [[ -z "$quiet" ]]; then
+                log_info "✓ Created secrets.encrypted.yaml"
+            fi
             return 0
         else
             rm -f "$secrets_file"
-            echo -e "${RED}Error: Failed to create secrets.encrypted.yaml${NC}" >&2
-            echo -e "${YELLOW}Debug: Check that .sops.yaml is properly configured and age key is available${NC}" >&2
+            log_error "Failed to create secrets.encrypted.yaml"
+            if [[ -z "$quiet" ]]; then
+                log_debug "Check that .sops.yaml is properly configured and age key is available"
+            fi
             return 1
         fi
     fi
@@ -312,8 +489,8 @@ load_secrets_from_sops() {
         # If decryption failed, check if it's because the file isn't encrypted with SOPS
         if grep -q "^sops:" "$secrets_file" 2>/dev/null; then
             # File has SOPS metadata but decryption failed - this is an error
-            echo -e "${RED}Error: Could not decrypt secrets.encrypted.yaml${NC}" >&2
-            echo -e "${RED}This indicates a problem with the encryption keys.${NC}" >&2
+            log_error "Could not decrypt secrets.encrypted.yaml"
+            log_error "This indicates a problem with the encryption keys."
             return 1
         fi
         # File doesn't have SOPS metadata - silently skip (will be created during setup)
@@ -321,48 +498,202 @@ load_secrets_from_sops() {
     fi
 }
 
+# Unified secrets operation functions
+# These functions ensure prerequisites exist and handle all secrets operations
+
+# Function to get a secret value
+# Usage: secrets_get KEY
+secrets_get() {
+    local key="$1"
+    local script_dir=$(get_script_dir)
+    local secrets_file="${script_dir}/secrets.encrypted.yaml"
+    local quiet=""
+    
+    if is_secrets_quiet; then
+        quiet="1"
+    fi
+    
+    if [[ -z "$key" ]]; then
+        log_error "Key is required"
+        return 1
+    fi
+    
+    # Ensure prerequisites exist
+    ensure_secrets_prerequisites "$quiet" || return 1
+    create_secrets_file_if_needed "$quiet" || return 1
+    
+    # Extract value using SOPS
+    local json_path="[\"${key}\"]"
+    sops_cmd -d --extract "$json_path" "$secrets_file" 2>/dev/null
+    echo
+}
+
+# Function to set a secret value
+# Usage: secrets_set KEY VALUE
+secrets_set() {
+    local key="$1"
+    local value="$2"
+    local script_dir=$(get_script_dir)
+    local secrets_file="${script_dir}/secrets.encrypted.yaml"
+    local quiet=""
+    
+    if is_secrets_quiet; then
+        quiet="1"
+    fi
+    
+    if [[ -z "$key" ]] || [[ -z "$value" ]]; then
+        log_error "Key and value are required"
+        return 1
+    fi
+    
+    # Ensure prerequisites exist
+    ensure_secrets_prerequisites "$quiet" || return 1
+    create_secrets_file_if_needed "$quiet" || return 1
+    
+    # Set value using SOPS
+    sops_cmd set "$secrets_file" "[\"${key}\"]" "\"${value}\"" > /dev/null 2>&1 || return 1
+    log_info "✓ Set ${key}"
+}
+
+# Function to delete a secret
+# Usage: secrets_delete KEY
+secrets_delete() {
+    local key="$1"
+    local script_dir=$(get_script_dir)
+    local secrets_file="${script_dir}/secrets.encrypted.yaml"
+    local quiet=""
+    
+    if is_secrets_quiet; then
+        quiet="1"
+    fi
+    
+    if [[ -z "$key" ]]; then
+        log_error "Key is required"
+        return 1
+    fi
+    
+    # Ensure prerequisites exist
+    ensure_secrets_prerequisites "$quiet" || return 1
+    
+    # Check if file exists
+    if [[ ! -f "$secrets_file" ]]; then
+        log_error "secrets.encrypted.yaml does not exist"
+        return 1
+    fi
+    
+    # Delete key using SOPS
+    sops_cmd unset "$secrets_file" "[\"${key}\"]" > /dev/null 2>&1 || return 1
+    log_info "✓ Deleted ${key}"
+}
+
+# Function to list all secret keys
+# Usage: secrets_list
+secrets_list() {
+    local script_dir=$(get_script_dir)
+    local secrets_file="${script_dir}/secrets.encrypted.yaml"
+    local quiet=""
+    
+    if is_secrets_quiet; then
+        quiet="1"
+    fi
+    
+    # Ensure prerequisites exist
+    ensure_secrets_prerequisites "$quiet" || return 1
+    
+    # Check if file exists
+    if [[ ! -f "$secrets_file" ]]; then
+        return 0  # Empty list if file doesn't exist
+    fi
+    
+    # Decrypt and extract keys
+    sops_cmd -d "$secrets_file" 2>/dev/null | grep -E '^[^#:]+:' | cut -d: -f1 | sort
+}
+
+# Function to dump all secrets (decrypted)
+# Usage: secrets_dump
+secrets_dump() {
+    local script_dir=$(get_script_dir)
+    local secrets_file="${script_dir}/secrets.encrypted.yaml"
+    local quiet=""
+    
+    if is_secrets_quiet; then
+        quiet="1"
+    fi
+    
+    # Ensure prerequisites exist
+    ensure_secrets_prerequisites "$quiet" || return 1
+    
+    # Check if file exists
+    if [[ ! -f "$secrets_file" ]]; then
+        echo "{}"
+        return 0
+    fi
+    
+    # Decrypt and output
+    sops_cmd -d "$secrets_file" 2>/dev/null
+}
+
+# Function to edit secrets in editor
+# Usage: secrets_edit
+secrets_edit() {
+    local script_dir=$(get_script_dir)
+    local secrets_file="${script_dir}/secrets.encrypted.yaml"
+    local quiet=""
+    
+    if is_secrets_quiet; then
+        quiet="1"
+    fi
+    
+    # Ensure prerequisites exist
+    ensure_secrets_prerequisites "$quiet" || return 1
+    create_secrets_file_if_needed "$quiet" || return 1
+    
+    # Open in editor
+    sops_cmd "$secrets_file"
+}
+
+# Function to add a recipient to .sops.yaml
+# Usage: secrets_add_recipient PUBLIC_KEY
+secrets_add_recipient() {
+    local public_key="$1"
+    local quiet=""
+    
+    if is_secrets_quiet; then
+        quiet="1"
+    fi
+    
+    if [[ -z "$public_key" ]]; then
+        log_error "Public key is required"
+        return 1
+    fi
+    
+    # Ensure prerequisites exist (creates .sops.yaml if needed)
+    ensure_secrets_prerequisites "$quiet" || return 1
+    
+    # Add recipient
+    if [[ -n "$quiet" ]]; then
+        add_sops_recipient "$public_key" > /dev/null 2>&1 || return 1
+    else
+        add_sops_recipient "$public_key" || return 1
+    fi
+    
+    # Note: Secrets will be automatically re-encrypted when next edited
+    return 0
+}
+
 # Function to update SOPS encrypted secrets
 # Usage: update_sops_secret VAR_NAME VAR_VALUE
+# This is a convenience wrapper around secrets_set for use by get_config_value
 update_sops_secret() {
     local var_name="$1"
     local var_value="$2"
-    local script_dir=$(get_script_dir)
-    local secrets_file="${script_dir}/secrets.encrypted.yaml"
-    local sops_config="${script_dir}/.sops.yaml"
-    local secrets_script="${script_dir}/secrets.sh"
     
-    # Check if SOPS is available
-    if ! command -v sops &> /dev/null; then
-        return 0  # Silently skip if SOPS not available
-    fi
-    
-    # Check if .sops.yaml exists
-    if [[ ! -f "$sops_config" ]]; then
-        return 0  # Silently skip if config doesn't exist
-    fi
-    
-    # Create secrets.encrypted.yaml if it doesn't exist
-    create_secrets_file_if_needed || return 0
-    
-    # Ensure age key is loaded
-    ensure_sops_age_key || {
-        return 0  # Silently skip if key not available
-    }
-    
-    # Try to use secrets.sh if available (preferred method)
-    if [[ -f "$secrets_script" ]] && [[ -x "$secrets_script" ]]; then
-        if bash "$secrets_script" set "$var_name" "$var_value" > /dev/null 2>&1; then
-            echo -e "${GREEN}✓ Updated ${var_name} in encrypted secrets${NC}"
-            return 0
-        fi
-    fi
-    
-    # Fallback: use sops directly with correct syntax
-    # SOPS syntax: sops set secrets.encrypted.yaml '["key"]' "value"
-    if sops_cmd set "$secrets_file" "[\"${var_name}\"]" "\"${var_value}\"" > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ Updated ${var_name} in encrypted secrets${NC}"
+    # Use the unified secrets_set function
+    secrets_set "$var_name" "$var_value" > /dev/null 2>&1
+    if [[ $? -eq 0 ]]; then
+        log_debug "✓ Updated ${var_name} in encrypted secrets"
     else
-        echo -e "${YELLOW}⚠ Failed to update ${var_name} in encrypted secrets${NC}" >&2
+        log_warn "⚠ Failed to update ${var_name} in encrypted secrets"
     fi
 }
 
@@ -381,7 +712,7 @@ get_config_value() {
     
     # If variable already has a value from environment, use it immediately
     if [[ -n "$var_value" ]]; then
-        echo -e "${GREEN}Using ${var_name} from environment: ${var_value}${NC}"
+        log_debug "Using ${var_name} from environment: ${var_value}"
         eval "$var_name=\"$var_value\""
         return 0
     fi
@@ -392,7 +723,7 @@ get_config_value() {
     
     # If variable now has a value from secrets, use it immediately
     if [[ -n "$var_value" ]]; then
-        echo -e "${GREEN}Using ${var_name} from encrypted secrets${NC}"
+        log_debug "Using ${var_name} from encrypted secrets"
         eval "$var_name=\"$var_value\""
         return 0
     fi
@@ -401,11 +732,11 @@ get_config_value() {
     if [[ -n "$default_value" ]]; then
         # Use default value if provided
         var_value="$default_value"
-        echo -e "${GREEN}Using default ${var_name}: ${var_value}${NC}"
+        log_debug "Using default ${var_name}: ${var_value}"
     elif [ -t 0 ]; then # Check if stdin is a terminal
         read -p "$prompt_msg: " var_value < /dev/tty
         if [[ -z "$var_value" ]] && [[ -n "$error_msg" ]]; then
-            echo -e "${RED}${error_msg}${NC}" >&2
+            log_error "${error_msg}"
             exit 1
         fi
         if [[ -n "$var_value" ]]; then
@@ -414,7 +745,7 @@ get_config_value() {
     else
         # Non-interactive, variable not set
         if [[ -n "$error_msg" ]]; then
-            echo -e "${RED}Error: ${var_name} is required and not set in non-interactive mode.${NC}" >&2
+            log_error "${var_name} is required and not set in non-interactive mode."
             exit 1
         fi
         # If error_msg is empty, allow empty value (optional variable)
@@ -460,11 +791,11 @@ wait_for_dns() {
     local elapsed=0
     
     if [[ -z "$expected_ip" ]]; then
-        echo -e "${YELLOW}Could not detect server IP, skipping DNS check.${NC}"
+        log_warn "Could not detect server IP, skipping DNS check."
         return 0
     fi
     
-    echo -e "${BLUE}Waiting for DNS record to propagate...${NC}"
+    log_info "Waiting for DNS record to propagate..."
     while [ "$elapsed" -lt "$max_wait" ]; do
         local resolved_ip=""
         
@@ -477,16 +808,16 @@ wait_for_dns() {
         fi
         
         if [[ -n "$resolved_ip" ]] && [[ "$resolved_ip" == "$expected_ip" ]]; then
-            echo -e "${GREEN}DNS record is correctly configured!${NC}"
+            log_info "DNS record is correctly configured!"
             return 0
         fi
         
-        echo -e "${YELLOW}DNS not ready yet (resolved to: ${resolved_ip:-not found}), waiting 5 seconds...${NC}"
+        log_debug "DNS not ready yet (resolved to: ${resolved_ip:-not found}), waiting 5 seconds..."
         sleep 5
         elapsed=$((elapsed + 5))
     done
     
-    echo -e "${YELLOW}DNS check timed out after ${max_wait} seconds${NC}"
+    log_warn "DNS check timed out after ${max_wait} seconds"
     return 1
 }
 
@@ -500,18 +831,18 @@ check_service_health() {
     local port_ok=false
     
     if is_service_active "$service_name"; then
-        echo -e "${GREEN}✓ ${description} service is running${NC}"
+        log_info "✓ ${description} service is running"
         service_ok=true
     else
-        echo -e "${RED}✗ ${description} service is not running${NC}"
+        log_error "✗ ${description} service is not running"
     fi
     
     if [[ -n "$port" ]]; then
         if is_port_listening "$port"; then
-            echo -e "${GREEN}✓ ${description} is listening on port ${port}${NC}"
+            log_info "✓ ${description} is listening on port ${port}"
             port_ok=true
         else
-            echo -e "${RED}✗ ${description} is not listening on port ${port}${NC}"
+            log_error "✗ ${description} is not listening on port ${port}"
         fi
     fi
     
@@ -533,7 +864,7 @@ ensure_service_running() {
         return 0
     fi
     
-    echo -e "${YELLOW}Starting ${description}...${NC}"
+    log_info "Starting ${description}..."
     systemctl daemon-reload
     systemctl enable "$service_name" > /dev/null 2>&1 || true
     
@@ -546,7 +877,7 @@ ensure_service_running() {
     local waited=0
     while [ "$waited" -lt "$max_wait" ]; do
         if is_service_active "$service_name" && ([[ -z "$port" ]] || is_port_listening "$port"); then
-            echo -e "${GREEN}${description} is running${NC}"
+            log_info "${description} is running"
             return 0
         fi
         sleep 1
@@ -567,20 +898,20 @@ check_https_endpoint() {
     http_code=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
     
     if [[ "$http_code" = "000" ]]; then
-        echo -e "${YELLOW}⚠ HTTPS endpoint is not reachable${NC}"
+        log_warn "⚠ HTTPS endpoint is not reachable"
         return 1
     fi
     
     # Check if code is in expected list
     if [[ ",${expected_codes}," =~ ,${http_code}, ]]; then
         if [[ "$http_code" = "404" ]]; then
-            echo -e "${GREEN}✓ HTTPS endpoint is reachable (HTTP 404 is expected)${NC}"
+            log_info "✓ HTTPS endpoint is reachable (HTTP 404 is expected)"
         else
-            echo -e "${GREEN}✓ HTTPS endpoint is reachable (HTTP ${http_code})${NC}"
+            log_info "✓ HTTPS endpoint is reachable (HTTP ${http_code})"
         fi
         return 0
     else
-        echo -e "${YELLOW}⚠ HTTPS endpoint returned HTTP ${http_code}${NC}"
+        log_warn "⚠ HTTPS endpoint returned HTTP ${http_code}"
         return 1
     fi
 }

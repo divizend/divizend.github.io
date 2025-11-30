@@ -7,14 +7,14 @@ source "${SCRIPT_DIR}/common.sh"
 
 # Ensure SOPS and age are available
 if ! command -v sops &> /dev/null; then
-    echo -e "${RED}Error: SOPS is not installed${NC}" >&2
-    echo -e "${YELLOW}Install with: brew install sops (macOS) or download from https://github.com/getsops/sops${NC}" >&2
+    log_error "SOPS is not installed"
+    log_warn "Install with: brew install sops (macOS) or download from https://github.com/getsops/sops"
     exit 1
 fi
 
 if ! command -v age-keygen &> /dev/null; then
-    echo -e "${RED}Error: age-keygen is not installed${NC}" >&2
-    echo -e "${YELLOW}Install with: brew install age (macOS) or download from https://github.com/FiloSottile/age${NC}" >&2
+    log_error "age-keygen is not installed"
+    log_warn "Install with: brew install age (macOS) or download from https://github.com/FiloSottile/age"
     exit 1
 fi
 
@@ -25,7 +25,7 @@ ensure_age_keypair "$LOCAL_AGE_KEY_FILE" "local age keypair" || exit 1
 # Extract public key from local key file
 LOCAL_PUBLIC_KEY=$(extract_age_public_key "$LOCAL_AGE_KEY_FILE")
 if [[ -z "$LOCAL_PUBLIC_KEY" ]]; then
-    echo -e "${RED}Error: Could not extract public key from ${LOCAL_AGE_KEY_FILE}${NC}" >&2
+    log_error "Could not extract public key from ${LOCAL_AGE_KEY_FILE}"
     exit 1
 fi
 
@@ -35,7 +35,7 @@ ensure_sops_age_key "$LOCAL_AGE_KEY_FILE" || exit 1
 # Ensure .sops.yaml exists and add local public key if not present
 ensure_sops_config "$LOCAL_PUBLIC_KEY"
 if ! grep -q "$LOCAL_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
-    echo -e "${BLUE}📝 Updating .sops.yaml with local public key...${NC}"
+    log_info "📝 Updating .sops.yaml with local public key..."
     add_sops_recipient "$LOCAL_PUBLIC_KEY"
 fi
 
@@ -46,22 +46,22 @@ load_secrets_from_sops
 get_config_value GITHUB_PAT "Enter GitHub Personal Access Token (with repo scope)" "GITHUB_PAT is required"
 
 if ! git diff --quiet setup.sh; then
-    echo "[INFO] Committing and pushing setup.sh..."
+    log_info "Committing and pushing setup.sh..."
 git add setup.sh
 git commit -m "Update setup.sh"
 git push
 else
-    echo "[INFO] setup.sh is unchanged, skipping git operations."
+    log_debug "setup.sh is unchanged, skipping git operations."
 fi
 
-echo "[DEPLOY] Running setup on server..."
+log_info "Running setup on server..."
 # Get SERVER_IP using common function (will load from encrypted secrets if available)
 get_config_value SERVER_IP "Enter Server IP address" "SERVER_IP is required"
 
 # Remove server IP from known_hosts to ensure clean state (silently skip if not present)
 KNOWN_HOSTS_FILE="$HOME/.ssh/known_hosts"
 if [[ -f "$KNOWN_HOSTS_FILE" ]] && grep -q "${SERVER_IP}" "$KNOWN_HOSTS_FILE" 2>/dev/null; then
-    echo "[DEPLOY] Removing ${SERVER_IP} from known_hosts for clean connection..."
+    log_debug "Removing ${SERVER_IP} from known_hosts for clean connection..."
     # Create backup before modifying
     BACKUP_FILE=$(backup_file "$KNOWN_HOSTS_FILE" 2>/dev/null || echo "")
     # Remove lines containing the IP address (works on both macOS and Linux)
@@ -77,7 +77,7 @@ if [[ -f "$KNOWN_HOSTS_FILE" ]] && grep -q "${SERVER_IP}" "$KNOWN_HOSTS_FILE" 2>
 fi
 
 # Get or generate server's age public key and add it to .sops.yaml before re-encrypting
-echo "[DEPLOY] Getting server's age public key..."
+log_info "Getting server's age public key..."
 # Add server to known_hosts to avoid interactive prompt (will be added automatically by ssh-keyscan)
 ssh-keyscan -H ${SERVER_IP} >> ~/.ssh/known_hosts 2>/dev/null || true
 SERVER_AGE_KEY_FILE="/root/.age-key-server"
@@ -117,27 +117,27 @@ SERVER_PUBLIC_KEY=$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10
 
 # Check if we got a valid public key (starts with age1)
 if [[ -z "$SERVER_PUBLIC_KEY" ]] || [[ ! "$SERVER_PUBLIC_KEY" =~ ^age1 ]]; then
-    echo "[ERROR] Could not get server's public key" >&2
-    echo "[ERROR] SSH output: $SERVER_PUBLIC_KEY" >&2
+    log_error "Could not get server's public key"
+    log_error "SSH output: $SERVER_PUBLIC_KEY"
     exit 1
 fi
 
 # Add server public key to .sops.yaml if not present
 if ! grep -q "$SERVER_PUBLIC_KEY" "${SCRIPT_DIR}/.sops.yaml" 2>/dev/null; then
-    echo "[DEPLOY] Adding server public key to .sops.yaml..."
+    log_info "Adding server public key to .sops.yaml..."
     add_sops_recipient "$SERVER_PUBLIC_KEY"
     
     # Re-encrypt secrets with server key included
     if [[ -f "${SCRIPT_DIR}/secrets.encrypted.yaml" ]]; then
-        echo "[DEPLOY] Re-encrypting secrets with server key..."
+        log_info "Re-encrypting secrets with server key..."
         TEMP_SECRETS=$(mktemp)
         ensure_sops_age_key || exit 1
         if sops_cmd -d "${SCRIPT_DIR}/secrets.encrypted.yaml" > "$TEMP_SECRETS" 2>/dev/null; then
             sops_cmd -e "$TEMP_SECRETS" > "${SCRIPT_DIR}/secrets.encrypted.yaml"
             rm -f "$TEMP_SECRETS"
-            echo "[DEPLOY] ✓ Secrets re-encrypted with server key"
+            log_info "✓ Secrets re-encrypted with server key"
         else
-            echo "[ERROR] Could not decrypt secrets for re-encryption" >&2
+            log_error "Could not decrypt secrets for re-encryption"
             rm -f "$TEMP_SECRETS"
             exit 1
         fi
@@ -168,10 +168,10 @@ SSH_CMD=""
 [[ -n "$GITHUB_PAT" ]] && SSH_CMD="${SSH_CMD}GITHUB_PAT=$(printf %q "$GITHUB_PAT") "
 
 if ssh -t root@${SERVER_IP} "${SSH_CMD}bash /tmp/setup.sh.local; EXIT_CODE=\$?; rm -rf /tmp/setup.sh.local /tmp/common.sh /tmp/templates /tmp/scripts /tmp/secrets.encrypted.yaml /tmp/.sops.yaml; exit \$EXIT_CODE"; then
-    echo "[INFO] Deployment complete."
+    log_info "Deployment complete."
     
     # Test sync script functionality
-    echo "[TEST] Testing sync.ts script..."
+    log_info "Testing sync.ts script..."
     # Prepare environment variables for test
     TEST_ENV="BENTO_API_URL='http://localhost:4195'"
     TEST_ENV="${TEST_ENV} TOOLS_ROOT_GITHUB='${TOOLS_ROOT_GITHUB:-https://github.com/divizend/divizend.github.io/main/bentotools}'"
@@ -185,19 +185,19 @@ if ssh -t root@${SERVER_IP} "${SSH_CMD}bash /tmp/setup.sh.local; EXIT_CODE=\$?; 
     
     # Check for warnings in sync output
     if echo "$SYNC_OUTPUT" | grep -q "⚠\|warning\|Warning\|WARNING"; then
-        echo "[ERROR] Sync script test failed with warnings:"
+        log_error "Sync script test failed with warnings:"
         echo "$SYNC_OUTPUT"
         exit 1
     fi
     
     if [ $SYNC_EXIT -ne 0 ]; then
-        echo "[ERROR] Sync script test failed with exit code $SYNC_EXIT:"
+        log_error "Sync script test failed with exit code $SYNC_EXIT:"
         echo "$SYNC_OUTPUT"
         exit 1
     fi
     
-    echo "[INFO] ✓ Sync script test passed."
+    log_info "✓ Sync script test passed."
 else
-    echo "[ERROR] Deployment failed. The setup script on the server terminated with an error."
+    log_error "Deployment failed. The setup script on the server terminated with an error."
     exit 1
 fi

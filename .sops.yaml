@@ -1,0 +1,13 @@
+# SOPS configuration for encrypting secrets
+# This file supports multiple recipients (local, server, GitHub Actions)
+# Each recipient can decrypt the secrets using their private key
+
+creation_rules:
+  - path_regex: secrets\.encrypted\.yaml$
+    age: >-
+      age1apgre7ghgz4zmgtdze4gcaf3znzdc72896m3xrdzy95vvatg75aq6lqt9w
+    # Multiple age public keys (comma-separated):
+    # 1. Local machine public key (for editing secrets locally)
+    # 2. Server public key (for decrypting during setup.sh)
+    # 3. GitHub Actions public key (for CI/CD)
+    # Keys will be automatically added/updated by deploy.sh and setup.sh

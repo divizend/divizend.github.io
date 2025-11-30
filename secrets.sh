@@ -1,10 +1,10 @@
 #!/bin/bash
 # Unified secrets management script using SOPS
+# This script is a thin wrapper around functions in common.sh
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SECRETS_FILE="${SCRIPT_DIR}/secrets.encrypted.yaml"
 
 # Source common functions
 source "${SCRIPT_DIR}/common.sh"
@@ -16,73 +16,59 @@ shift || true
 case "$command" in
     get)
         if [[ -z "$1" ]]; then
-            echo "Usage: $0 get <key>" >&2
+            log_error "Usage: $0 get <key>"
             exit 1
         fi
-        KEY="$1"
-        JSON_PATH="[\"${KEY}\"]"
-        sops_cmd -d --extract "$JSON_PATH" "$SECRETS_FILE"
-        echo
+        secrets_get "$1"
         ;;
     
     set)
         if [[ -z "$1" ]] || [[ -z "$2" ]]; then
-            echo "Usage: $0 set <key> <value>" >&2
+            log_error "Usage: $0 set <key> <value>"
             exit 1
         fi
-        KEY="$1"
-        VALUE="$2"
-        
-        # Create secrets.encrypted.yaml if it doesn't exist
-        create_secrets_file_if_needed || exit 1
-        
-        sops_cmd set "$SECRETS_FILE" "[\"${KEY}\"]" "\"${VALUE}\""
-        echo "✓ Set ${KEY}"
+        secrets_set "$1" "$2"
         ;;
     
     delete|unset)
         if [[ -z "$1" ]]; then
-            echo "Usage: $0 delete <key>" >&2
+            log_error "Usage: $0 delete <key>"
             exit 1
         fi
-        KEY="$1"
-        sops_cmd unset "$SECRETS_FILE" "[\"${KEY}\"]"
-        echo "✓ Deleted ${KEY}"
+        secrets_delete "$1"
         ;;
     
     list)
-        sops_cmd -d "$SECRETS_FILE" 2>/dev/null | grep -E '^[^#:]+:' | cut -d: -f1 | sort
+        secrets_list
         ;;
     
     edit)
-        sops_cmd "$SECRETS_FILE"
+        secrets_edit
         ;;
     
     dump)
-        sops_cmd -d "$SECRETS_FILE"
+        secrets_dump
         ;;
     
     add-recipient)
         if [[ -z "$1" ]]; then
-            echo "Usage: $0 add-recipient <public-key>" >&2
+            log_error "Usage: $0 add-recipient <public-key>"
             exit 1
         fi
-        PUBLIC_KEY="$1"
-        add_sops_recipient "$PUBLIC_KEY" || exit 1
-        # Note: Secrets will be automatically re-encrypted when next edited
+        secrets_add_recipient "$1"
         ;;
     
     *)
-        echo "Usage: $0 <command> [args...]" >&2
-        echo "" >&2
-        echo "Commands:" >&2
-        echo "  get <key>              Get a secret value" >&2
-        echo "  set <key> <value>      Set a secret value" >&2
-        echo "  delete <key>           Delete a secret" >&2
-        echo "  list                   List all secret keys" >&2
-        echo "  edit                   Edit all secrets in editor" >&2
-        echo "  dump                   Dump all secrets (decrypted)" >&2
-        echo "  add-recipient <key>    Add a recipient to .sops.yaml" >&2
+        log_error "Usage: $0 <command> [args...]"
+        log_error ""
+        log_error "Commands:"
+        log_error "  get <key>              Get a secret value"
+        log_error "  set <key> <value>      Set a secret value"
+        log_error "  delete <key>           Delete a secret"
+        log_error "  list                   List all secret keys"
+        log_error "  edit                   Edit all secrets in editor"
+        log_error "  dump                   Dump all secrets (decrypted)"
+        log_error "  add-recipient <key>    Add a recipient to .sops.yaml"
         exit 1
         ;;
 esac
